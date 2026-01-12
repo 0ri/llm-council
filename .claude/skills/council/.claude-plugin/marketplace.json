@@ -1,0 +1,12 @@
+{
+  "plugins": [
+    {
+      "name": "council",
+      "description": "Multi-model LLM council with anonymized peer review",
+      "source": {
+        "type": "local",
+        "path": "."
+      }
+    }
+  ]
+}

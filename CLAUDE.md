@@ -53,18 +53,44 @@ Edit `.claude/council-config.json` to change models:
 ```json
 {
   "council_models": [
-    {"name": "Claude Opus 4.5", "provider": "bedrock", "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0"},
-    {"name": "GPT-5", "provider": "poe", "bot_name": "GPT-5"},
-    {"name": "Gemini-2.5-Pro", "provider": "poe", "bot_name": "Gemini-2.5-Pro"},
+    {
+      "name": "Claude Opus 4.5",
+      "provider": "bedrock",
+      "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+      "budget_tokens": 10000
+    },
+    {
+      "name": "GPT-5.2-Pro",
+      "provider": "poe",
+      "bot_name": "GPT-5.2-Pro",
+      "web_search": true,
+      "reasoning_effort": "high"
+    },
+    {
+      "name": "Gemini-3-Flash",
+      "provider": "poe",
+      "bot_name": "Gemini-3-Flash",
+      "web_search": true,
+      "reasoning_effort": "high"
+    },
     {"name": "Grok-4", "provider": "poe", "bot_name": "Grok-4"}
   ],
   "chairman": {
     "name": "Claude Opus 4.5",
     "provider": "bedrock",
-    "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0"
+    "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+    "budget_tokens": 10000
   }
 }
 ```
+
+### Enhanced Model Parameters
+
+| Provider | Parameter | Description |
+|----------|-----------|-------------|
+| Bedrock | `budget_tokens` | Extended thinking token budget (e.g., 10000) |
+| Poe | `web_search` | Enable web search (true/false) |
+| Poe | `reasoning_effort` | GPT: "medium"/"high"/"Xhigh", Gemini: "minimal"/"low"/"high" |
 
 ## Requirements
 
@@ -74,13 +100,14 @@ Edit `.claude/council-config.json` to change models:
 ## Available Models
 
 ### Bedrock (Anthropic)
-- `us.anthropic.claude-opus-4-5-20251101-v1:0` - Claude Opus 4.5
+- `us.anthropic.claude-opus-4-5-20251101-v1:0` - Claude Opus 4.5 (supports extended thinking)
 - `us.anthropic.claude-sonnet-4-20250514-v1:0` - Claude Sonnet 4
 
 ### Poe.com
-- `GPT-5`, `GPT-4o`, `GPT-4o-Mini`
-- `Gemini-2.5-Pro`, `Gemini-2.0-Flash`
-- `Grok-4`
+- `GPT-5.2-Pro` - supports web_search, reasoning_effort (medium/high/Xhigh)
+- `GPT-5`, `GPT-4o`
+- `Gemini-3-Flash`, `Gemini-3-Pro` - supports web_search, thinking_level (minimal/low/high)
+- `Grok-4` - no enhanced features via API
 
 ## Direct Script Usage
 

@@ -1,11 +1,9 @@
 ---
-name: council
 description: Multi-model LLM council with anonymized peer review
-invoke: /council
-args: question or --config
+argument-hint: Question to ask the council, or --config to configure models
 ---
 
-# LLM Council Skill
+# LLM Council
 
 Query a council of LLMs that deliberate through 3 stages:
 1. **Stage 1**: All models answer the question independently
@@ -28,28 +26,28 @@ The anonymization prevents models from playing favorites.
 
 ## Execution Instructions
 
-### When user runs `/council "question"`:
+**User's input:** $ARGUMENTS
 
-1. **Read config** from the project's `.claude/council-config.json`
-   - If config doesn't exist, create it with defaults first
+### If `$ARGUMENTS` is a question (not --config):
 
-2. **Spawn orchestrator subagent** using the Task tool:
+1. **Spawn orchestrator subagent** using the Task tool:
    ```
    Task(
      subagent_type="general-purpose",
-     description="Run LLM council",
-     prompt="Execute the LLM council script to answer this question: [QUESTION]
+     description="Run LLM council query",
+     prompt="Run the LLM council to answer this question.
 
-     Run: python /path/to/.claude/skills/council/scripts/council.py '[QUESTION]'
+Execute this command:
+export POE_API_KEY=$(grep POE_API_KEY /Users/neidich/Public/llm-council/.env 2>/dev/null | cut -d= -f2)
+uv run /Users/neidich/Public/llm-council/.claude/skills/council/scripts/council.py \"$ARGUMENTS\"
 
-     The script will query multiple models and return a markdown summary.
-     Return the full output to the user."
+Return the complete markdown output to display to the user."
    )
    ```
 
-3. **Display the results** inline in the conversation
+2. **Display the results** inline in the conversation
 
-### When user runs `/council --config`:
+### If `$ARGUMENTS` is `--config`:
 
 1. **Use AskUserQuestion** to let user configure:
    - Which models to include in the council (multi-select)

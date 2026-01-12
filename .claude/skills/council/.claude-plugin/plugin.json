@@ -1,0 +1,7 @@
+{
+  "name": "council",
+  "description": "Multi-model LLM council with anonymized peer review for collaborative answers",
+  "author": {
+    "name": "Ori Neidich"
+  }
+}

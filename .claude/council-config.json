@@ -3,27 +3,33 @@
     {
       "name": "Claude Opus 4.5",
       "provider": "bedrock",
-      "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+      "budget_tokens": 10000
     },
     {
-      "name": "GPT-5",
+      "name": "GPT-5.2-Pro",
       "provider": "poe",
-      "bot_name": "GPT-5"
-    },
-    {
-      "name": "Gemini-2.5-Pro",
-      "provider": "poe",
-      "bot_name": "Gemini-2.5-Pro"
+      "bot_name": "GPT-5.2-Pro",
+      "web_search": true,
+      "reasoning_effort": "high"
     },
     {
       "name": "Grok-4",
       "provider": "poe",
       "bot_name": "Grok-4"
+    },
+    {
+      "name": "Gemini-3-Flash",
+      "provider": "poe",
+      "bot_name": "Gemini-3-Flash",
+      "web_search": true,
+      "reasoning_effort": "high"
     }
   ],
   "chairman": {
     "name": "Claude Opus 4.5",
     "provider": "bedrock",
-    "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0"
+    "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+    "budget_tokens": 10000
   }
 }
