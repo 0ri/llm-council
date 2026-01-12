@@ -1,6 +1,23 @@
-# CLAUDE.md - Technical Notes for LLM Council
+# CLAUDE.md
 
-This file contains technical details, architectural decisions, and important implementation notes for future development sessions.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Development Commands
+
+```bash
+# Install dependencies
+uv sync                          # Backend (Python)
+cd frontend && npm install       # Frontend (React)
+
+# Run the application
+./start.sh                       # Both servers (recommended)
+uv run python -m backend.main    # Backend only (port 8001)
+cd frontend && npm run dev       # Frontend only (port 5173)
+
+# Frontend commands
+cd frontend && npm run lint      # ESLint
+cd frontend && npm run build     # Production build
+```
 
 ## Project Overview
 
@@ -11,16 +28,19 @@ LLM Council is a 3-stage deliberation system where multiple LLMs collaboratively
 ### Backend Structure (`backend/`)
 
 **`config.py`**
-- Contains `COUNCIL_MODELS` (list of OpenRouter model identifiers)
+- Contains `COUNCIL_MODELS` (list of Poe.com bot display names, e.g., "GPT-5", "Claude-Sonnet-4.5")
 - Contains `CHAIRMAN_MODEL` (model that synthesizes final answer)
-- Uses environment variable `OPENROUTER_API_KEY` from `.env`
+- Contains `TITLE_MODEL` (fast model for generating conversation titles, e.g., "GPT-4o-Mini")
+- Uses environment variable `POE_API_KEY` from `.env` (obtain from poe.com/api_key)
 - Backend runs on **port 8001** (NOT 8000 - user had another app on 8000)
 
-**`openrouter.py`**
-- `query_model()`: Single async model query
+**`poe.py`**
+- `query_model()`: Single async model query using fastapi-poe's `get_bot_response()`
 - `query_models_parallel()`: Parallel queries using `asyncio.gather()`
-- Returns dict with 'content' and optional 'reasoning_details'
+- Uses Poe.com's PartialResponse streaming and accumulates chunks into complete response
+- Returns dict with 'content' key for compatibility
 - Graceful degradation: returns None on failure, continues with successful responses
+- Handles Poe-specific errors: authentication, bot not found, rate limits, timeouts
 
 **`council.py`** - The Core Logic
 - `stage1_collect_responses()`: Parallel queries to all council models
@@ -93,21 +113,13 @@ This strict format allows reliable parsing while still getting thoughtful evalua
 
 ### De-anonymization Strategy
 - Models receive: "Response A", "Response B", etc.
-- Backend creates mapping: `{"Response A": "openai/gpt-5.1", ...}`
-- Frontend displays model names in **bold** for readability
-- Users see explanation that original evaluation used anonymous labels
+- Backend creates mapping: `{"Response A": "GPT-5", ...}`
+- Frontend displays model names in **bold** for readability (original evaluation used anonymous labels)
 - This prevents bias while maintaining transparency
 
-### Error Handling Philosophy
-- Continue with successful responses if some models fail (graceful degradation)
+### Error Handling
+- Graceful degradation: continue with successful responses if some models fail
 - Never fail the entire request due to single model failure
-- Log errors but don't expose to user unless all models fail
-
-### UI/UX Transparency
-- All raw outputs are inspectable via tabs
-- Parsed rankings shown below raw text for validation
-- Users can verify system's interpretation of model outputs
-- This builds trust and allows debugging of edge cases
 
 ## Important Implementation Details
 
@@ -123,7 +135,7 @@ All backend modules use relative imports (e.g., `from .config import ...`) not a
 All ReactMarkdown components must be wrapped in `<div className="markdown-content">` for proper spacing. This class is defined globally in `index.css`.
 
 ### Model Configuration
-Models are hardcoded in `backend/config.py`. Chairman can be same or different from council members. The current default is Gemini as chairman per user preference.
+Models are configured in `backend/config.py` using Poe.com display names (e.g., "GPT-5", "Claude-Sonnet-4.5", "Gemini-2.5-Pro"). Chairman can be same or different from council members. The current default is Gemini as chairman per user preference. A separate `TITLE_MODEL` is used for fast title generation.
 
 ## Common Gotchas
 
@@ -143,7 +155,7 @@ Models are hardcoded in `backend/config.py`. Chairman can be same or different f
 
 ## Testing Notes
 
-Use `test_openrouter.py` to verify API connectivity and test different model identifiers before adding to council. The script tests both streaming and non-streaming modes.
+Test Poe API connectivity by running a simple query through `backend/poe.py`. Verify bot names are correct Poe.com display names before adding to council.
 
 ## Data Flow Summary
 
