@@ -1,92 +1,113 @@
 # LLM Council
 
-![llmcouncil](header.jpg)
+A Claude Code skill for multi-model LLM deliberation with anonymized peer review.
 
-The idea of this repo is that instead of asking a question to your favorite LLM provider (e.g. OpenAI GPT-5, Google Gemini 2.5 Pro, Anthropic Claude Sonnet 4.5, xAI Grok 4, etc.), you can group them into your "LLM Council". This repo is a simple, local web app that essentially looks like ChatGPT except it uses Poe.com to send your query to multiple LLMs, it then asks them to review and rank each other's work, and finally a Chairman LLM produces the final response.
+## What It Does
 
-In a bit more detail, here is what happens when you submit a query:
+Instead of asking a question to a single LLM, the council queries multiple models, has them anonymously rank each other's responses, and synthesizes a final answer. The anonymization prevents models from playing favorites.
 
-1. **Stage 1: First opinions**. The user query is given to all LLMs individually, and the responses are collected. The individual responses are shown in a "tab view", so that the user can inspect them all one by one.
-2. **Stage 2: Review**. Each individual LLM is given the responses of the other LLMs. Under the hood, the LLM identities are anonymized so that the LLM can't play favorites when judging their outputs. The LLM is asked to rank them in accuracy and insight.
-3. **Stage 3: Final response**. The designated Chairman of the LLM Council takes all of the model's responses and compiles them into a single final answer that is presented to the user.
+**3-Stage Process:**
 
-## Vibe Code Alert
+1. **Stage 1: First opinions** - All models answer independently
+2. **Stage 2: Peer review** - Models rank responses using anonymous labels (Response A/B/C)
+3. **Stage 3: Synthesis** - Chairman compiles the final answer based on rankings
 
-This project was 99% vibe coded as a fun Saturday hack because I wanted to explore and evaluate a number of LLMs side by side in the process of [reading books together with LLMs](https://x.com/karpathy/status/1990577951671509438). It's nice and useful to see multiple responses side by side, and also the cross-opinions of all LLMs on each other's outputs. I'm not going to support it in any way, it's provided here as is for other people's inspiration and I don't intend to improve it. Code is ephemeral now and libraries are over, ask your LLM to change it in whatever way you like.
+## Usage
+
+### As a Claude Code Skill
+
+```
+/council "What's the best approach for building a REST API?"
+```
+
+### Configure Models
+
+```
+/council --config
+```
 
 ## Setup
 
-### 1. Install Dependencies
+### 1. Install the Skill
 
-The project uses [uv](https://docs.astral.sh/uv/) for project management.
+Copy the `.claude/skills/council/` directory to your project or home directory.
 
-**Backend:**
+### 2. Configure API Keys
+
+**For Bedrock (Claude models):**
+- AWS credentials must be configured (`~/.aws/credentials` or environment variables)
+
+**For Poe.com (GPT, Gemini, Grok):**
 ```bash
-uv sync
+export POE_API_KEY=your-poe-api-key-here
 ```
 
-**Frontend:**
+Get your Poe API key at [poe.com/api_key](https://poe.com/api_key).
+
+### 3. Model Configuration
+
+Edit `.claude/council-config.json`:
+
+```json
+{
+  "council_models": [
+    {"name": "Claude Opus 4.5", "provider": "bedrock", "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0"},
+    {"name": "GPT-5", "provider": "poe", "bot_name": "GPT-5"},
+    {"name": "Gemini-2.5-Pro", "provider": "poe", "bot_name": "Gemini-2.5-Pro"},
+    {"name": "Grok-4", "provider": "poe", "bot_name": "Grok-4"}
+  ],
+  "chairman": {
+    "name": "Claude Opus 4.5",
+    "provider": "bedrock",
+    "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0"
+  }
+}
+```
+
+## Available Models
+
+### Bedrock (Anthropic)
+- Claude Opus 4.5: `us.anthropic.claude-opus-4-5-20251101-v1:0`
+- Claude Sonnet 4: `us.anthropic.claude-sonnet-4-20250514-v1:0`
+
+### Poe.com
+- OpenAI: `GPT-5`, `GPT-4o`, `GPT-4o-Mini`
+- Google: `Gemini-2.5-Pro`, `Gemini-2.0-Flash`
+- xAI: `Grok-4`
+
+## Direct Script Usage
+
+The council script can be run directly for testing:
+
 ```bash
-cd frontend
-npm install
-cd ..
+python .claude/skills/council/scripts/council.py "What is the capital of France?"
 ```
 
-### 2. Configure API Key
+## Output Format
 
-Create a `.env` file in the project root:
+```markdown
+## LLM Council Response
 
-```bash
-POE_API_KEY=your-poe-api-key-here
+### Model Rankings (by peer review)
+
+| Rank | Model | Avg Position |
+|------|-------|--------------|
+| 1 | Claude Opus 4.5 | 1.5 |
+| 2 | GPT-5 | 2.0 |
+| 3 | Gemini-2.5-Pro | 2.8 |
+| 4 | Grok-4 | 3.7 |
+
+*Rankings determined by anonymous peer evaluation*
+
+---
+
+### Synthesized Answer
+
+**Chairman:** Claude Opus 4.5
+
+[Final synthesized response...]
 ```
 
-Get your API key at [poe.com/api_key](https://poe.com/api_key). You'll need a Poe subscription to access the API.
+## Background
 
-### 3. Configure Models (Optional)
-
-Edit `backend/config.py` to customize the council. Use Poe.com display names:
-
-```python
-COUNCIL_MODELS = [
-    "GPT-5",
-    "Gemini-2.5-Pro",
-    "Claude-Sonnet-4.5",
-    "Grok-4",
-]
-
-CHAIRMAN_MODEL = "Gemini-2.5-Pro"
-
-# Fast model for title generation
-TITLE_MODEL = "GPT-4o-Mini"
-```
-
-Available bots include: GPT-5, GPT-4o, GPT-4o-Mini, Claude-Sonnet-4.5, Claude-3-Haiku, Gemini-2.5-Pro, Gemini-2.0-Flash, Grok-4, and more. See [poe.com](https://poe.com) for the full list.
-
-## Running the Application
-
-**Option 1: Use the start script**
-```bash
-./start.sh
-```
-
-**Option 2: Run manually**
-
-Terminal 1 (Backend):
-```bash
-uv run python -m backend.main
-```
-
-Terminal 2 (Frontend):
-```bash
-cd frontend
-npm run dev
-```
-
-Then open http://localhost:5173 in your browser.
-
-## Tech Stack
-
-- **Backend:** FastAPI (Python 3.10+), fastapi-poe, Poe.com API
-- **Frontend:** React + Vite, react-markdown for rendering
-- **Storage:** JSON files in `data/conversations/`
-- **Package Management:** uv for Python, npm for JavaScript
+This project was inspired by the desire to evaluate multiple LLMs side by side and see their cross-opinions on each other's outputs. The key innovation is the anonymized peer review - models evaluate "Response A", "Response B", etc. without knowing which model produced each response.
