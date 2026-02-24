@@ -952,9 +952,9 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
                     "budget_tokens": 10000
                 },
                 {
-                    "name": "GPT-5.2-Pro",
+                    "name": "GPT-5.3-Codex",
                     "provider": "poe",
-                    "bot_name": "GPT-5.2-Pro",
+                    "bot_name": "GPT-5.3-Codex",
                     "web_search": True,
                     "reasoning_effort": "high"
                 },

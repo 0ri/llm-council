@@ -29,7 +29,7 @@ LLM Council runs multi-model deliberation with anonymized peer review. It querie
 ### Hybrid Provider Strategy
 
 - **Bedrock**: Claude Opus 4.6 (council member + chairman)
-- **Poe.com**: GPT-5.2-Pro, Gemini-3.1-Pro, Grok-4
+- **Poe.com**: GPT-5.3-Codex, Gemini-3.1-Pro, Grok-4
 
 ### Provider Abstraction
 
@@ -69,9 +69,9 @@ Edit `.claude/council-config.json` to change models:
       "budget_tokens": 10000
     },
     {
-      "name": "GPT-5.2-Pro",
+      "name": "GPT-5.3-Codex",
       "provider": "poe",
-      "bot_name": "GPT-5.2-Pro",
+      "bot_name": "GPT-5.3-Codex",
       "web_search": true,
       "reasoning_effort": "high"
     },
@@ -124,7 +124,7 @@ Any model in your AWS Bedrock region (Anthropic, Meta, Mistral, Cohere, etc.). E
 
 ### Poe.com
 Any bot on Poe's API (hundreds of models including open-source). Examples:
-- `GPT-5.2-Pro`, `GPT-5.2` - supports web_search, reasoning_effort
+- `GPT-5.3-Codex`, `GPT-5.2` - supports web_search, reasoning_effort
 - `Gemini-3.1-Pro`, `Gemini-3-Flash` - supports web_search, thinking_level
 - `Grok-4`
 

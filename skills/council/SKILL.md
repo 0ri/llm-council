@@ -46,7 +46,7 @@ The output will include:
    - Plus any other Bedrock model (Meta, Mistral, Cohere, etc.)
 
    **Poe.com** (any bot on Poe — requires POE_API_KEY):
-   - GPT-5.2-Pro, GPT-5.2 - supports web_search, reasoning_effort (medium/high/Xhigh)
+   - GPT-5.3-Codex, GPT-5.2 - supports web_search, reasoning_effort (medium/high/Xhigh)
    - Gemini-3.1-Pro, Gemini-3-Pro - supports web_search, thinking_level (minimal/low/high)
    - Grok-4
    - Plus hundreds of other models and community bots
@@ -70,9 +70,9 @@ The output will include:
       "budget_tokens": 10000
     },
     {
-      "name": "GPT-5.2-Pro",
+      "name": "GPT-5.3-Codex",
       "provider": "poe",
-      "bot_name": "GPT-5.2-Pro",
+      "bot_name": "GPT-5.3-Codex",
       "web_search": true,
       "reasoning_effort": "high"
     },
@@ -108,7 +108,7 @@ The council returns a markdown summary with:
 | Rank | Model | Avg Position |
 |------|-------|--------------|
 | 1 | Claude Opus 4.6 | 1.5 |
-| 2 | GPT-5.2-Pro | 2.0 |
+| 2 | GPT-5.3-Codex | 2.0 |
 | 3 | Gemini-3.1-Pro | 2.8 |
 | 4 | Grok-4 | 3.7 |
 

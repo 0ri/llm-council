@@ -61,7 +61,7 @@ Return the complete markdown output to display to the user."
    - Plus any other Bedrock model (Meta, Mistral, Cohere, etc.)
 
    **Poe.com** (any bot on Poe — requires POE_API_KEY):
-   - GPT-5.2-Pro, GPT-5.2
+   - GPT-5.3-Codex, GPT-5.2
    - Gemini-3.1-Pro, Gemini-3-Pro
    - Grok-4
    - Plus hundreds of other models and community bots
@@ -78,7 +78,7 @@ Location: `.claude/council-config.json`
 {
   "council_models": [
     {"name": "Claude Opus 4.6", "provider": "bedrock", "model_id": "us.anthropic.claude-opus-4-6-v1:0"},
-    {"name": "GPT-5.2-Pro", "provider": "poe", "bot_name": "GPT-5.2-Pro"},
+    {"name": "GPT-5.3-Codex", "provider": "poe", "bot_name": "GPT-5.3-Codex"},
     {"name": "Gemini-3.1-Pro", "provider": "poe", "bot_name": "Gemini-3.1-Pro"},
     {"name": "Grok-4", "provider": "poe", "bot_name": "Grok-4"}
   ],
@@ -102,7 +102,7 @@ The council returns a markdown summary:
 | Rank | Model | Avg Position |
 |------|-------|--------------|
 | 1 | Claude Opus 4.6 | 1.5 |
-| 2 | GPT-5.2-Pro | 2.0 |
+| 2 | GPT-5.3-Codex | 2.0 |
 | 3 | Gemini-3.1-Pro | 2.8 |
 | 4 | Grok-4 | 3.7 |
 
