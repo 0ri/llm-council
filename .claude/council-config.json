@@ -2,9 +2,8 @@
   "council_models": [
     {
       "name": "Claude Opus 4.6",
-      "provider": "bedrock",
-      "model_id": "us.anthropic.claude-opus-4-6-v1:0",
-      "budget_tokens": 10000
+      "provider": "poe",
+      "bot_name": "Claude-3.5-Opus"
     },
     {
       "name": "GPT-5.3-Codex",
@@ -28,8 +27,7 @@
   ],
   "chairman": {
     "name": "Claude Opus 4.6",
-    "provider": "bedrock",
-    "model_id": "us.anthropic.claude-opus-4-6-v1:0",
-    "budget_tokens": 10000
+    "provider": "poe",
+    "bot_name": "Claude-3.5-Opus"
   }
 }

@@ -12,6 +12,52 @@ Instead of asking a question to a single LLM, the council queries multiple model
 2. **Stage 2: Peer review** - Models rank responses using anonymous labels (Response A/B/C)
 3. **Stage 3: Synthesis** - Chairman compiles the final answer based on rankings
 
+## Architecture
+
+```mermaid
+flowchart TD
+    Q["User Query"]
+
+    subgraph Stage1["Stage 1: First Opinions"]
+        direction LR
+        B["Bedrock Provider"]
+        P["Poe Provider"]
+        M1["Claude Opus 4.6"]
+        M2["GPT-5.3-Codex"]
+        M3["Gemini-3.1-Pro"]
+        M4["Grok-4"]
+        B --> M1
+        P --> M2
+        P --> M3
+        P --> M4
+    end
+
+    A["Anonymization<br/>(Response A/B/C/D)"]
+
+    subgraph Stage2["Stage 2: Peer Review"]
+        direction LR
+        R1["Model 1 ranks"]
+        R2["Model 2 ranks"]
+        R3["Model 3 ranks"]
+        R4["Model 4 ranks"]
+    end
+
+    AGG["Ranking Aggregation"]
+
+    subgraph Stage3["Stage 3: Synthesis"]
+        CH["Chairman<br/>(Claude Opus 4.6)"]
+    end
+
+    OUT["Final Output"]
+
+    Q --> Stage1
+    Stage1 --> A
+    A --> Stage2
+    Stage2 --> AGG
+    AGG --> Stage3
+    Stage3 --> OUT
+```
+
 ## Usage
 
 ```
@@ -131,3 +177,23 @@ python .claude/skills/council/scripts/council.py "What is the capital of France?
 ## Background
 
 This project was inspired by the desire to evaluate multiple LLMs side by side and see their cross-opinions on each other's outputs. The key innovation is the anonymized peer review - models evaluate "Response A", "Response B", etc. without knowing which model produced each response.
+
+## Known Limitations
+
+- **Single-file script architecture** limits modularity and makes unit testing individual components difficult
+- **No built-in caching** - repeated queries re-query all models, increasing latency and API costs
+- **Ranking parser relies on models following JSON output format** - if a model returns malformed JSON rankings, parsing may fail
+- **No streaming output** - waits for full responses from all models before displaying results
+
+## Contributing
+
+Contributions are welcome! To contribute:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/your-feature`)
+3. Make your changes and add tests
+4. Submit a pull request
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
