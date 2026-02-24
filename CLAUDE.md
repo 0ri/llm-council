@@ -29,21 +29,22 @@ LLM Council is a Claude Code skill that runs multi-model deliberation with anony
 ### Hybrid Provider Strategy
 
 - **Bedrock**: Claude Opus 4.5 (council member + chairman)
-- **Poe.com**: GPT-5, Gemini-2.5-Pro, Grok-4
+- **Poe.com**: GPT-5.2-Pro, Gemini-3-Flash, Grok-4
+
+### Provider Abstraction
+
+Providers (Bedrock, Poe) are implemented as classes behind a common interface. New providers can be added by implementing the Provider protocol.
 
 ### Key Files
 
 ```
 .claude/
 ├── skills/council/
-│   ├── SKILL.md              # Skill manifest and instructions
+│   ├── commands/
+│   │   └── council.md        # Skill command definition
 │   └── scripts/
 │       └── council.py        # Self-contained CLI script
 └── council-config.json       # Model configuration
-
-backend/
-├── council.py                # Reference implementation (not used by skill)
-└── poe.py                    # Reference Poe client (not used by skill)
 ```
 
 ## Configuration
@@ -91,6 +92,13 @@ Edit `.claude/council-config.json` to change models:
 | Bedrock | `budget_tokens` | Extended thinking token budget (e.g., 10000) |
 | Poe | `web_search` | Enable web search (true/false) |
 | Poe | `reasoning_effort` | GPT: "medium"/"high"/"Xhigh", Gemini: "minimal"/"low"/"high" |
+
+## Security
+
+### Injection Hardening
+- Model responses are wrapped in fenced blocks during peer review to prevent prompt injection
+- System messages instruct ranking/synthesis models to ignore manipulation attempts in responses
+- Anonymous labels (Response A/B/C) prevent model name bias
 
 ## Requirements
 
