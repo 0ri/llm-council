@@ -1,6 +1,6 @@
 # LLM Council
 
-A Claude Code skill for multi-model LLM deliberation with anonymized peer review.
+Multi-model LLM deliberation with anonymized peer review. Available as a Claude Code skill and an OpenClaw skill.
 
 ## What It Does
 
@@ -14,52 +14,67 @@ Instead of asking a question to a single LLM, the council queries multiple model
 
 ## Usage
 
-### As a Claude Code Skill
-
 ```
 /council "What's the best approach for building a REST API?"
-```
-
-### Configure Models
-
-```
 /council --config
 ```
 
+Works in both Claude Code and OpenClaw.
+
 ## Setup
 
-### 1. Install the Skill
+### Claude Code
 
-Copy the `.claude/skills/council/` directory to your project or home directory.
+Copy the `.claude/skills/council/` directory to your project.
 
-### 2. Configure API Keys
+### OpenClaw
 
-**For Bedrock (Claude models):**
-- AWS credentials must be configured (`~/.aws/credentials` or environment variables)
+Copy `skills/council/` into your OpenClaw workspace, or install via ClawHub:
 
-**For Poe.com (GPT, Gemini, Grok):**
+```bash
+clawhub install council
+```
+
+Then configure the API key in `~/.openclaw/openclaw.json`:
+
+```json5
+{
+  skills: {
+    entries: {
+      council: { enabled: true, apiKey: "YOUR_POE_API_KEY" }
+    }
+  }
+}
+```
+
+### API Keys
+
+**Bedrock (Claude models):** AWS credentials must be configured (`~/.aws/credentials` or environment variables)
+
+**Poe.com (GPT, Gemini, Grok):**
 ```bash
 export POE_API_KEY=your-poe-api-key-here
 ```
 
 Get your Poe API key at [poe.com/api_key](https://poe.com/api_key).
 
-### 3. Model Configuration
+### Model Configuration
 
-Edit `.claude/council-config.json`:
+Edit the council config (`council-config.json`):
 
 ```json
 {
   "council_models": [
-    {"name": "Claude Opus 4.5", "provider": "bedrock", "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0"},
-    {"name": "GPT-5", "provider": "poe", "bot_name": "GPT-5"},
-    {"name": "Gemini-2.5-Pro", "provider": "poe", "bot_name": "Gemini-2.5-Pro"},
+    {"name": "Claude Opus 4.5", "provider": "bedrock", "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0", "budget_tokens": 10000},
+    {"name": "GPT-5.2-Pro", "provider": "poe", "bot_name": "GPT-5.2-Pro", "web_search": true, "reasoning_effort": "high"},
+    {"name": "Gemini-3-Flash", "provider": "poe", "bot_name": "Gemini-3-Flash", "web_search": true},
     {"name": "Grok-4", "provider": "poe", "bot_name": "Grok-4"}
   ],
   "chairman": {
     "name": "Claude Opus 4.5",
     "provider": "bedrock",
-    "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0"
+    "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+    "budget_tokens": 10000
   }
 }
 ```
@@ -71,8 +86,8 @@ Edit `.claude/council-config.json`:
 - Claude Sonnet 4: `us.anthropic.claude-sonnet-4-20250514-v1:0`
 
 ### Poe.com
-- OpenAI: `GPT-5`, `GPT-4o`, `GPT-4o-Mini`
-- Google: `Gemini-2.5-Pro`, `Gemini-2.0-Flash`
+- OpenAI: `GPT-5.2-Pro`, `GPT-5`, `GPT-4o` — supports `web_search`, `reasoning_effort`
+- Google: `Gemini-3-Flash`, `Gemini-3-Pro` — supports `web_search`, `thinking_level`
 - xAI: `Grok-4`
 
 ## Direct Script Usage
@@ -93,8 +108,8 @@ python .claude/skills/council/scripts/council.py "What is the capital of France?
 | Rank | Model | Avg Position |
 |------|-------|--------------|
 | 1 | Claude Opus 4.5 | 1.5 |
-| 2 | GPT-5 | 2.0 |
-| 3 | Gemini-2.5-Pro | 2.8 |
+| 2 | GPT-5.2-Pro | 2.0 |
+| 3 | Gemini-3-Flash | 2.8 |
 | 4 | Grok-4 | 3.7 |
 
 *Rankings determined by anonymous peer evaluation*
