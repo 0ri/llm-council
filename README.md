@@ -65,15 +65,15 @@ Edit the council config (`council-config.json`):
 ```json
 {
   "council_models": [
-    {"name": "Claude Opus 4.5", "provider": "bedrock", "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0", "budget_tokens": 10000},
+    {"name": "Claude Opus 4.6", "provider": "bedrock", "model_id": "us.anthropic.claude-opus-4-6-v1:0", "budget_tokens": 10000},
     {"name": "GPT-5.2-Pro", "provider": "poe", "bot_name": "GPT-5.2-Pro", "web_search": true, "reasoning_effort": "high"},
-    {"name": "Gemini-3-Flash", "provider": "poe", "bot_name": "Gemini-3-Flash", "web_search": true},
+    {"name": "Gemini-3.1-Pro", "provider": "poe", "bot_name": "Gemini-3.1-Pro", "web_search": true},
     {"name": "Grok-4", "provider": "poe", "bot_name": "Grok-4"}
   ],
   "chairman": {
-    "name": "Claude Opus 4.5",
+    "name": "Claude Opus 4.6",
     "provider": "bedrock",
-    "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+    "model_id": "us.anthropic.claude-opus-4-6-v1:0",
     "budget_tokens": 10000
   }
 }
@@ -81,14 +81,19 @@ Edit the council config (`council-config.json`):
 
 ## Available Models
 
-### Bedrock (Anthropic)
-- Claude Opus 4.5: `us.anthropic.claude-opus-4-5-20251101-v1:0`
-- Claude Sonnet 4: `us.anthropic.claude-sonnet-4-20250514-v1:0`
+You can use **any model** available on Bedrock or Poe.com — both providers offer hundreds of options including open-source models, smaller/faster models, and specialized models. The config examples above show current state-of-the-art choices, but you can swap in whatever models you want.
+
+### Bedrock
+Any model available in your AWS Bedrock region. Examples:
+- Anthropic: Claude Opus 4.6, Claude Sonnet 4
+- Meta, Mistral, Cohere, and others available through Bedrock
 
 ### Poe.com
-- OpenAI: `GPT-5.2-Pro`, `GPT-5`, `GPT-4o` — supports `web_search`, `reasoning_effort`
-- Google: `Gemini-3-Flash`, `Gemini-3-Pro` — supports `web_search`, `thinking_level`
-- xAI: `Grok-4`
+Any bot available on Poe's API. Examples:
+- OpenAI: GPT-5.2-Pro, GPT-5.2, GPT-4o
+- Google: Gemini-3.1-Pro, Gemini-3-Flash
+- xAI: Grok-4
+- Plus hundreds of other models and community bots
 
 ## Direct Script Usage
 
@@ -107,9 +112,9 @@ python .claude/skills/council/scripts/council.py "What is the capital of France?
 
 | Rank | Model | Avg Position |
 |------|-------|--------------|
-| 1 | Claude Opus 4.5 | 1.5 |
+| 1 | Claude Opus 4.6 | 1.5 |
 | 2 | GPT-5.2-Pro | 2.0 |
-| 3 | Gemini-3-Flash | 2.8 |
+| 3 | Gemini-3.1-Pro | 2.8 |
 | 4 | Grok-4 | 3.7 |
 
 *Rankings determined by anonymous peer evaluation*
@@ -118,7 +123,7 @@ python .claude/skills/council/scripts/council.py "What is the capital of France?
 
 ### Synthesized Answer
 
-**Chairman:** Claude Opus 4.5
+**Chairman:** Claude Opus 4.6
 
 [Final synthesized response...]
 ```

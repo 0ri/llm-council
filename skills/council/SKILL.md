@@ -40,19 +40,16 @@ The output will include:
 
 2. **Ask the user which models to include** in the council (multi-select):
 
-   **Bedrock (Anthropic)** - requires AWS credentials:
-   - Claude Opus 4.5 (`us.anthropic.claude-opus-4-5-20251101-v1:0`) - supports budget_tokens
+   **Bedrock** (any model in your region — requires AWS credentials):
+   - Claude Opus 4.6 (`us.anthropic.claude-opus-4-6-v1:0`) - supports budget_tokens
    - Claude Sonnet 4 (`us.anthropic.claude-sonnet-4-20250514-v1:0`)
+   - Plus any other Bedrock model (Meta, Mistral, Cohere, etc.)
 
-   **Poe.com** - requires POE_API_KEY environment variable:
-   - GPT-5.2-Pro - supports web_search, reasoning_effort (medium/high/Xhigh)
-   - GPT-5 - supports web_search, reasoning_effort
-   - GPT-4o
-   - Gemini-3-Flash - supports web_search, thinking_level (minimal/low/high)
-   - Gemini-3-Pro - supports web_search, thinking_level
-   - Gemini-2.5-Pro
-   - Gemini-2.0-Flash
+   **Poe.com** (any bot on Poe — requires POE_API_KEY):
+   - GPT-5.2-Pro, GPT-5.2 - supports web_search, reasoning_effort (medium/high/Xhigh)
+   - Gemini-3.1-Pro, Gemini-3-Pro - supports web_search, thinking_level (minimal/low/high)
    - Grok-4
+   - Plus hundreds of other models and community bots
 
 3. **Ask which model should be chairman** (single select from the chosen council models)
 
@@ -67,9 +64,9 @@ The output will include:
 {
   "council_models": [
     {
-      "name": "Claude Opus 4.5",
+      "name": "Claude Opus 4.6",
       "provider": "bedrock",
-      "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+      "model_id": "us.anthropic.claude-opus-4-6-v1:0",
       "budget_tokens": 10000
     },
     {
@@ -80,18 +77,18 @@ The output will include:
       "reasoning_effort": "high"
     },
     {
-      "name": "Gemini-3-Flash",
+      "name": "Gemini-3.1-Pro",
       "provider": "poe",
-      "bot_name": "Gemini-3-Flash",
+      "bot_name": "Gemini-3.1-Pro",
       "web_search": true,
       "thinking_level": "high"
     },
     {"name": "Grok-4", "provider": "poe", "bot_name": "Grok-4"}
   ],
   "chairman": {
-    "name": "Claude Opus 4.5",
+    "name": "Claude Opus 4.6",
     "provider": "bedrock",
-    "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+    "model_id": "us.anthropic.claude-opus-4-6-v1:0",
     "budget_tokens": 10000
   }
 }
@@ -110,9 +107,9 @@ The council returns a markdown summary with:
 
 | Rank | Model | Avg Position |
 |------|-------|--------------|
-| 1 | Claude Opus 4.5 | 1.5 |
+| 1 | Claude Opus 4.6 | 1.5 |
 | 2 | GPT-5.2-Pro | 2.0 |
-| 3 | Gemini-3-Flash | 2.8 |
+| 3 | Gemini-3.1-Pro | 2.8 |
 | 4 | Grok-4 | 3.7 |
 
 *Rankings determined by anonymous peer evaluation*
@@ -121,7 +118,7 @@ The council returns a markdown summary with:
 
 ### Synthesized Answer
 
-**Chairman:** Claude Opus 4.5
+**Chairman:** Claude Opus 4.6
 
 [Chairman's synthesis based on all responses and rankings...]
 ```

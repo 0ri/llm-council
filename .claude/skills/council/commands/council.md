@@ -55,16 +55,16 @@ Return the complete markdown output to display to the user."
 
 2. **Available models**:
 
-   **Bedrock (Anthropic)**:
-   - Claude Opus 4.5 (`us.anthropic.claude-opus-4-5-20251101-v1:0`)
+   **Bedrock** (any model in your region — requires AWS credentials):
+   - Claude Opus 4.6 (`us.anthropic.claude-opus-4-6-v1:0`)
    - Claude Sonnet 4 (`us.anthropic.claude-sonnet-4-20250514-v1:0`)
+   - Plus any other Bedrock model (Meta, Mistral, Cohere, etc.)
 
-   **Poe.com** (requires POE_API_KEY):
-   - GPT-5
-   - GPT-4o
-   - Gemini-2.5-Pro
-   - Gemini-2.0-Flash
+   **Poe.com** (any bot on Poe — requires POE_API_KEY):
+   - GPT-5.2-Pro, GPT-5.2
+   - Gemini-3.1-Pro, Gemini-3-Pro
    - Grok-4
+   - Plus hundreds of other models and community bots
 
 3. **Save selections** to `.claude/council-config.json`
 
@@ -77,15 +77,15 @@ Location: `.claude/council-config.json`
 ```json
 {
   "council_models": [
-    {"name": "Claude Opus 4.5", "provider": "bedrock", "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0"},
-    {"name": "GPT-5", "provider": "poe", "bot_name": "GPT-5"},
-    {"name": "Gemini-2.5-Pro", "provider": "poe", "bot_name": "Gemini-2.5-Pro"},
+    {"name": "Claude Opus 4.6", "provider": "bedrock", "model_id": "us.anthropic.claude-opus-4-6-v1:0"},
+    {"name": "GPT-5.2-Pro", "provider": "poe", "bot_name": "GPT-5.2-Pro"},
+    {"name": "Gemini-3.1-Pro", "provider": "poe", "bot_name": "Gemini-3.1-Pro"},
     {"name": "Grok-4", "provider": "poe", "bot_name": "Grok-4"}
   ],
   "chairman": {
-    "name": "Claude Opus 4.5",
+    "name": "Claude Opus 4.6",
     "provider": "bedrock",
-    "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0"
+    "model_id": "us.anthropic.claude-opus-4-6-v1:0"
   }
 }
 ```
@@ -101,9 +101,9 @@ The council returns a markdown summary:
 
 | Rank | Model | Avg Position |
 |------|-------|--------------|
-| 1 | Claude Opus 4.5 | 1.5 |
-| 2 | GPT-5 | 2.0 |
-| 3 | Gemini-2.5-Pro | 2.8 |
+| 1 | Claude Opus 4.6 | 1.5 |
+| 2 | GPT-5.2-Pro | 2.0 |
+| 3 | Gemini-3.1-Pro | 2.8 |
 | 4 | Grok-4 | 3.7 |
 
 *Rankings determined by anonymous peer evaluation*
@@ -112,7 +112,7 @@ The council returns a markdown summary:
 
 ### Synthesized Answer
 
-**Chairman:** Claude Opus 4.5
+**Chairman:** Claude Opus 4.6
 
 [Chairman's synthesis based on all responses and rankings...]
 ```

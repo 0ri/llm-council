@@ -1,9 +1,9 @@
 {
   "council_models": [
     {
-      "name": "Claude Opus 4.5",
+      "name": "Claude Opus 4.6",
       "provider": "bedrock",
-      "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+      "model_id": "us.anthropic.claude-opus-4-6-v1:0",
       "budget_tokens": 10000
     },
     {
@@ -19,17 +19,17 @@
       "bot_name": "Grok-4"
     },
     {
-      "name": "Gemini-3-Flash",
+      "name": "Gemini-3.1-Pro",
       "provider": "poe",
-      "bot_name": "Gemini-3-Flash",
+      "bot_name": "Gemini-3.1-Pro",
       "web_search": true,
       "reasoning_effort": "high"
     }
   ],
   "chairman": {
-    "name": "Claude Opus 4.5",
+    "name": "Claude Opus 4.6",
     "provider": "bedrock",
-    "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+    "model_id": "us.anthropic.claude-opus-4-6-v1:0",
     "budget_tokens": 10000
   }
 }

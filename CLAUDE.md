@@ -28,8 +28,8 @@ LLM Council runs multi-model deliberation with anonymized peer review. It querie
 
 ### Hybrid Provider Strategy
 
-- **Bedrock**: Claude Opus 4.5 (council member + chairman)
-- **Poe.com**: GPT-5.2-Pro, Gemini-3-Flash, Grok-4
+- **Bedrock**: Claude Opus 4.6 (council member + chairman)
+- **Poe.com**: GPT-5.2-Pro, Gemini-3.1-Pro, Grok-4
 
 ### Provider Abstraction
 
@@ -63,9 +63,9 @@ Edit `.claude/council-config.json` to change models:
 {
   "council_models": [
     {
-      "name": "Claude Opus 4.5",
+      "name": "Claude Opus 4.6",
       "provider": "bedrock",
-      "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+      "model_id": "us.anthropic.claude-opus-4-6-v1:0",
       "budget_tokens": 10000
     },
     {
@@ -76,18 +76,18 @@ Edit `.claude/council-config.json` to change models:
       "reasoning_effort": "high"
     },
     {
-      "name": "Gemini-3-Flash",
+      "name": "Gemini-3.1-Pro",
       "provider": "poe",
-      "bot_name": "Gemini-3-Flash",
+      "bot_name": "Gemini-3.1-Pro",
       "web_search": true,
       "reasoning_effort": "high"
     },
     {"name": "Grok-4", "provider": "poe", "bot_name": "Grok-4"}
   ],
   "chairman": {
-    "name": "Claude Opus 4.5",
+    "name": "Claude Opus 4.6",
     "provider": "bedrock",
-    "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+    "model_id": "us.anthropic.claude-opus-4-6-v1:0",
     "budget_tokens": 10000
   }
 }
@@ -115,15 +115,18 @@ Edit `.claude/council-config.json` to change models:
 
 ## Available Models
 
-### Bedrock (Anthropic)
-- `us.anthropic.claude-opus-4-5-20251101-v1:0` - Claude Opus 4.5 (supports extended thinking)
+Any model available on Bedrock or Poe.com can be used. The config examples show current state-of-the-art choices, but you can swap in any model either provider supports.
+
+### Bedrock
+Any model in your AWS Bedrock region (Anthropic, Meta, Mistral, Cohere, etc.). Examples:
+- `us.anthropic.claude-opus-4-6-v1:0` - Claude Opus 4.6 (supports extended thinking)
 - `us.anthropic.claude-sonnet-4-20250514-v1:0` - Claude Sonnet 4
 
 ### Poe.com
-- `GPT-5.2-Pro` - supports web_search, reasoning_effort (medium/high/Xhigh)
-- `GPT-5`, `GPT-4o`
-- `Gemini-3-Flash`, `Gemini-3-Pro` - supports web_search, thinking_level (minimal/low/high)
-- `Grok-4` - no enhanced features via API
+Any bot on Poe's API (hundreds of models including open-source). Examples:
+- `GPT-5.2-Pro`, `GPT-5.2` - supports web_search, reasoning_effort
+- `Gemini-3.1-Pro`, `Gemini-3-Flash` - supports web_search, thinking_level
+- `Grok-4`
 
 ## Direct Script Usage
 

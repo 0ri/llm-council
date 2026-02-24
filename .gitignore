@@ -12,6 +12,10 @@ wheels/
 # Keys and secrets
 .env
 
+# Claude Code local state
+.claude/claudeclaw/
+.claude/worktrees/
+
 # Data files
 data/
 

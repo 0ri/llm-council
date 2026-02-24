@@ -946,9 +946,9 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
         return {
             "council_models": [
                 {
-                    "name": "Claude Opus 4.5",
+                    "name": "Claude Opus 4.6",
                     "provider": "bedrock",
-                    "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+                    "model_id": "us.anthropic.claude-opus-4-6-v1:0",
                     "budget_tokens": 10000
                 },
                 {
@@ -959,9 +959,9 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
                     "reasoning_effort": "high"
                 },
                 {
-                    "name": "Gemini-3-Flash",
+                    "name": "Gemini-3.1-Pro",
                     "provider": "poe",
-                    "bot_name": "Gemini-3-Flash",
+                    "bot_name": "Gemini-3.1-Pro",
                     "web_search": True,
                     "reasoning_effort": "high"
                 },
@@ -972,9 +972,9 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
                 }
             ],
             "chairman": {
-                "name": "Claude Opus 4.5",
+                "name": "Claude Opus 4.6",
                 "provider": "bedrock",
-                "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+                "model_id": "us.anthropic.claude-opus-4-6-v1:0",
                 "budget_tokens": 10000
             }
         }
