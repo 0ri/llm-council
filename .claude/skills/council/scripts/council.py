@@ -16,6 +16,7 @@ import json
 import os
 import re
 import sys
+import typing
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -27,193 +28,216 @@ MODEL_TIMEOUT = 360
 MAX_RETRIES = 2
 
 # ============================================================================
-# PROVIDERS: Bedrock and Poe.com
+# PROVIDER ABSTRACTION
 # ============================================================================
 
-@retry(
-    stop=stop_after_attempt(MAX_RETRIES),
-    wait=wait_exponential(multiplier=1, min=2, max=10),
-    reraise=True
-)
-def query_bedrock(
-    model_id: str,
-    messages: List[Dict[str, str]],
-    system_message: Optional[str] = None,
-    budget_tokens: Optional[int] = None
-) -> Dict[str, Any]:
-    """
-    Query Claude via AWS Bedrock.
-
-    Args:
-        model_id: Bedrock model ID (e.g., us.anthropic.claude-opus-4-5-20251101-v1:0)
-        messages: List of message dicts with 'role' and 'content'
-        system_message: Optional system message (highest priority instructions)
-        budget_tokens: Optional token budget for extended thinking
-
-    Returns:
-        Response dict with 'content' key
-
-    Raises:
-        Exception on failure (for retry logic)
-    """
-    import boto3
-
-    client = boto3.client("bedrock-runtime", region_name="us-east-1")
-
-    # Convert to Bedrock message format
-    bedrock_messages = [
-        {"role": m["role"], "content": m["content"]}
-        for m in messages
-    ]
-
-    request_body = {
-        "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": 16000 if budget_tokens else 8192,
-        "messages": bedrock_messages
-    }
-
-    if system_message:
-        request_body["system"] = system_message
-
-    # Enable extended thinking if budget_tokens specified
-    if budget_tokens:
-        request_body["thinking"] = {
-            "type": "enabled",
-            "budget_tokens": budget_tokens
-        }
-
-    response = client.invoke_model(
-        modelId=model_id,
-        body=json.dumps(request_body)
-    )
-
-    result = json.loads(response["body"].read())
-
-    # Handle extended thinking response format (multiple content blocks)
-    content_blocks = result.get("content", [])
-    text_content = ""
-    for block in content_blocks:
-        if block.get("type") == "text":
-            text_content = block.get("text", "")
-            break
-        elif isinstance(block, dict) and "text" in block:
-            text_content = block["text"]
-            break
-
-    # Fallback for simple response format
-    if not text_content and content_blocks:
-        if isinstance(content_blocks[0], str):
-            text_content = content_blocks[0]
-        elif isinstance(content_blocks[0], dict):
-            text_content = content_blocks[0].get("text", "")
-
-    return {"content": text_content}
+class Provider(typing.Protocol):
+    """Protocol for LLM providers."""
+    async def query(self, prompt: str, model_config: dict, timeout: int) -> str: ...
 
 
-async def query_poe_with_retry(
-    bot_name: str,
-    messages: List[Dict[str, str]],
-    api_key: str,
-    system_message: Optional[str] = None,
-    web_search: bool = False,
-    reasoning_effort: Optional[str] = None
-) -> Dict[str, Any]:
-    """
-    Query a Poe.com bot with retry logic.
+class BedrockProvider:
+    """AWS Bedrock provider for Anthropic models."""
 
-    Args:
-        bot_name: Poe bot display name (e.g., "GPT-5")
-        messages: List of message dicts with 'role' and 'content'
-        api_key: Poe API key
-        system_message: Optional system message (prepended to conversation)
-        web_search: Enable web search (for supported models)
-        reasoning_effort: Reasoning level - "medium", "high", "Xhigh" for GPT models,
-                         "minimal", "low", "high" for Gemini models
+    def __init__(self, region: str = "us-east-1"):
+        self.region = region
+        self._client = None
 
-    Returns:
-        Response dict with 'content' key
+    def _get_client(self):
+        if self._client is None:
+            import boto3
+            self._client = boto3.client("bedrock-runtime", region_name=self.region)
+        return self._client
 
-    Raises:
-        Exception on failure after retries
-    """
-    import fastapi_poe as fp
-    from fastapi_poe import ProtocolMessage
+    async def query(self, prompt: str, model_config: dict, timeout: int) -> str:
+        """Query Claude via AWS Bedrock with timeout and retry logic."""
+        # Extract model-specific parameters
+        model_id = model_config["model_id"]
+        budget_tokens = model_config.get("budget_tokens")
 
-    last_error = None
-    for attempt in range(MAX_RETRIES):
-        try:
-            # Convert messages to ProtocolMessage format
-            # Poe uses 'bot' instead of 'assistant' for the role
-            protocol_messages = []
+        # Parse the prompt as messages (it's already formatted)
+        # The prompt contains the messages and optional system message
+        messages = model_config.get("_messages", [{"role": "user", "content": prompt}])
+        system_message = model_config.get("_system_message")
 
-            # Add system message as first user message if provided
+        @retry(
+            stop=stop_after_attempt(MAX_RETRIES),
+            wait=wait_exponential(multiplier=1, min=2, max=10),
+            reraise=True
+        )
+        def query_bedrock_inner():
+            client = self._get_client()
+
+            # Convert to Bedrock message format
+            bedrock_messages = [
+                {"role": m["role"], "content": m["content"]}
+                for m in messages
+            ]
+
+            request_body = {
+                "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": 16000 if budget_tokens else 8192,
+                "messages": bedrock_messages
+            }
+
             if system_message:
-                protocol_messages.append(
-                    ProtocolMessage(role="system", content=system_message)
-                )
+                request_body["system"] = system_message
 
-            for i, msg in enumerate(messages):
-                role = msg["role"]
-                if role == "assistant":
-                    role = "bot"
+            # Enable extended thinking if budget_tokens specified
+            if budget_tokens:
+                request_body["thinking"] = {
+                    "type": "enabled",
+                    "budget_tokens": budget_tokens
+                }
 
-                content = msg["content"]
+            response = client.invoke_model(
+                modelId=model_id,
+                body=json.dumps(request_body)
+            )
 
-                # Add flags to the first user message
-                if i == 0 and role == "user":
-                    flags = []
-                    if web_search:
-                        # GPT uses --web_search, Gemini uses --web_search true
-                        if "Gemini" in bot_name:
-                            flags.append("--web_search true")
-                        else:
-                            flags.append("--web_search")
+            result = json.loads(response["body"].read())
 
-                    if reasoning_effort:
-                        # GPT uses --reasoning_effort, Gemini uses --thinking_level
-                        if "Gemini" in bot_name:
-                            flags.append(f"--thinking_level {reasoning_effort}")
-                        else:
-                            flags.append(f"--reasoning_effort {reasoning_effort}")
+            # Handle extended thinking response format (multiple content blocks)
+            content_blocks = result.get("content", [])
+            text_content = ""
+            for block in content_blocks:
+                if block.get("type") == "text":
+                    text_content = block.get("text", "")
+                    break
+                elif isinstance(block, dict) and "text" in block:
+                    text_content = block["text"]
+                    break
 
-                    # Flags go at the END of the message for Poe bots
-                    if flags:
-                        content = content + "\n\n" + " ".join(flags)
+            # Fallback for simple response format
+            if not text_content and content_blocks:
+                if isinstance(content_blocks[0], str):
+                    text_content = content_blocks[0]
+                elif isinstance(content_blocks[0], dict):
+                    text_content = content_blocks[0].get("text", "")
 
-                protocol_messages.append(
-                    ProtocolMessage(role=role, content=content)
-                )
+            return text_content
 
-            # Accumulate response chunks
-            accumulated_text = ""
-            async for partial in fp.get_bot_response(
-                messages=protocol_messages,
-                bot_name=bot_name,
-                api_key=api_key,
-            ):
-                accumulated_text += partial.text
-
-            return {"content": accumulated_text}
-
-        except Exception as e:
-            last_error = e
-            if attempt < MAX_RETRIES - 1:
-                wait_time = 2 ** (attempt + 1)  # Exponential backoff
-                print(f"Poe error for {bot_name} (attempt {attempt + 1}), retrying in {wait_time}s: {e}", file=sys.stderr)
-                await asyncio.sleep(wait_time)
-            else:
-                print(f"Poe error for {bot_name} after {MAX_RETRIES} attempts: {e}", file=sys.stderr)
-                raise last_error
+        # Run synchronous Bedrock call in thread pool with timeout
+        result = await asyncio.wait_for(
+            asyncio.to_thread(query_bedrock_inner),
+            timeout=timeout
+        )
+        return result
 
 
-async def query_model_hybrid(
+class PoeProvider:
+    """Poe.com provider for GPT, Gemini, Grok models."""
+
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+
+    async def query(self, prompt: str, model_config: dict, timeout: int) -> str:
+        """Query a Poe.com bot with retry logic and timeout."""
+        # Extract model-specific parameters
+        bot_name = model_config["bot_name"]
+        web_search = model_config.get("web_search", False)
+        reasoning_effort = model_config.get("reasoning_effort")
+
+        # Parse the messages and system message from config
+        messages = model_config.get("_messages", [{"role": "user", "content": prompt}])
+        system_message = model_config.get("_system_message")
+
+        import fastapi_poe as fp
+        from fastapi_poe import ProtocolMessage
+
+        last_error = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                # Convert messages to ProtocolMessage format
+                # Poe uses 'bot' instead of 'assistant' for the role
+                protocol_messages = []
+
+                # Add system message as first user message if provided
+                if system_message:
+                    protocol_messages.append(
+                        ProtocolMessage(role="system", content=system_message)
+                    )
+
+                for i, msg in enumerate(messages):
+                    role = msg["role"]
+                    if role == "assistant":
+                        role = "bot"
+
+                    content = msg["content"]
+
+                    # Add flags to the first user message
+                    if i == 0 and role == "user":
+                        flags = []
+                        if web_search:
+                            # GPT uses --web_search, Gemini uses --web_search true
+                            if "Gemini" in bot_name:
+                                flags.append("--web_search true")
+                            else:
+                                flags.append("--web_search")
+
+                        if reasoning_effort:
+                            # GPT uses --reasoning_effort, Gemini uses --thinking_level
+                            if "Gemini" in bot_name:
+                                flags.append(f"--thinking_level {reasoning_effort}")
+                            else:
+                                flags.append(f"--reasoning_effort {reasoning_effort}")
+
+                        # Flags go at the END of the message for Poe bots
+                        if flags:
+                            content = content + "\n\n" + " ".join(flags)
+
+                    protocol_messages.append(
+                        ProtocolMessage(role=role, content=content)
+                    )
+
+                # Accumulate response chunks
+                accumulated_text = ""
+                async for partial in fp.get_bot_response(
+                    messages=protocol_messages,
+                    bot_name=bot_name,
+                    api_key=self.api_key,
+                ):
+                    accumulated_text += partial.text
+
+                return accumulated_text
+
+            except Exception as e:
+                last_error = e
+                if attempt < MAX_RETRIES - 1:
+                    wait_time = 2 ** (attempt + 1)  # Exponential backoff
+                    print(f"Poe error for {bot_name} (attempt {attempt + 1}), retrying in {wait_time}s: {e}", file=sys.stderr)
+                    await asyncio.sleep(wait_time)
+                else:
+                    print(f"Poe error for {bot_name} after {MAX_RETRIES} attempts: {e}", file=sys.stderr)
+                    raise last_error
+
+
+# Provider registry
+_providers: dict[str, Provider] = {}
+
+
+def get_provider(provider_name: str, api_key: str | None = None) -> Provider:
+    """Get or create a provider instance."""
+    if provider_name not in _providers:
+        if provider_name == "bedrock":
+            _providers[provider_name] = BedrockProvider()
+        elif provider_name == "poe":
+            if not api_key:
+                raise ValueError("POE_API_KEY required for Poe provider")
+            _providers[provider_name] = PoeProvider(api_key)
+        else:
+            raise ValueError(f"Unknown provider: {provider_name}")
+    return _providers[provider_name]
+
+
+async def query_model(
     model_config: Dict[str, Any],
     messages: List[Dict[str, str]],
     poe_api_key: Optional[str] = None,
     system_message: Optional[str] = None
 ) -> Optional[Dict[str, Any]]:
     """
-    Route to appropriate provider based on config, with timeout.
+    Query a model through its provider, with timeout.
 
     Args:
         model_config: Dict with 'provider', 'model_id' or 'bot_name', and optional:
@@ -227,56 +251,28 @@ async def query_model_hybrid(
     Returns:
         Response dict with 'content' key, or None if failed
     """
-    provider = model_config.get("provider")
+    provider_name = model_config.get("provider", "poe")
     model_name = model_config.get("name", "unknown")
 
+    # Add messages and system_message to config for provider access
+    config_with_context = model_config.copy()
+    config_with_context["_messages"] = messages
+    config_with_context["_system_message"] = system_message
+
     try:
-        if provider == "bedrock":
-            # Extract Bedrock-specific options
-            budget_tokens = model_config.get("budget_tokens")
-
-            # Bedrock is sync, run in thread pool with timeout
-            result = await asyncio.wait_for(
-                asyncio.to_thread(
-                    query_bedrock,
-                    model_config["model_id"],
-                    messages,
-                    system_message,
-                    budget_tokens
-                ),
-                timeout=MODEL_TIMEOUT
-            )
-            return result
-        elif provider == "poe":
-            if not poe_api_key:
-                print(f"POE_API_KEY not set, cannot query {model_name}", file=sys.stderr)
-                return None
-
-            # Extract Poe-specific options
-            web_search = model_config.get("web_search", False)
-            reasoning_effort = model_config.get("reasoning_effort")
-
-            result = await asyncio.wait_for(
-                query_poe_with_retry(
-                    model_config["bot_name"],
-                    messages,
-                    poe_api_key,
-                    system_message,
-                    web_search,
-                    reasoning_effort
-                ),
-                timeout=MODEL_TIMEOUT
-            )
-            return result
-        else:
-            print(f"Unknown provider: {provider}", file=sys.stderr)
-            return None
+        provider = get_provider(provider_name, poe_api_key)
+        result = await asyncio.wait_for(
+            provider.query("", config_with_context, MODEL_TIMEOUT),
+            timeout=MODEL_TIMEOUT
+        )
+        return {"content": result}
     except asyncio.TimeoutError:
         print(f"Timeout querying {model_name} after {MODEL_TIMEOUT}s", file=sys.stderr)
         return None
     except Exception as e:
         print(f"Error querying {model_name}: {e}", file=sys.stderr)
         return None
+
 
 
 async def query_models_parallel(
@@ -300,7 +296,7 @@ async def query_models_parallel(
     async def safe_query(config: Dict[str, Any]) -> Tuple[str, Optional[Dict[str, Any]]]:
         name = config.get("name", "unknown")
         try:
-            result = await query_model_hybrid(config, messages, poe_api_key, system_message)
+            result = await query_model(config, messages, poe_api_key, system_message)
             return (name, result)
         except Exception as e:
             print(f"Error querying {name}: {e}", file=sys.stderr)
@@ -497,7 +493,7 @@ Provide a clear, well-reasoned final answer that represents the council's collec
     messages = [{"role": "user", "content": chairman_prompt}]
 
     # Query the chairman model with system message
-    response = await query_model_hybrid(chairman_config, messages, poe_api_key, system_message)
+    response = await query_model(chairman_config, messages, poe_api_key, system_message)
 
     if response is None:
         return {
