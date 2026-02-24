@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-LLM Council is a Claude Code skill that runs multi-model deliberation with anonymized peer review. It queries multiple LLMs, has them rank each other's responses (using anonymous labels to prevent bias), and synthesizes a final answer.
+LLM Council runs multi-model deliberation with anonymized peer review. It queries multiple LLMs, has them rank each other's responses (using anonymous labels to prevent bias), and synthesizes a final answer. Available as both a Claude Code skill and an OpenClaw skill.
 
 ## Skill Usage
 
@@ -38,13 +38,21 @@ Providers (Bedrock, Poe) are implemented as classes behind a common interface. N
 ### Key Files
 
 ```
-.claude/
+.claude/                              # Claude Code skill
 ├── skills/council/
 │   ├── commands/
-│   │   └── council.md        # Skill command definition
+│   │   └── council.md                # Skill command definition
 │   └── scripts/
-│       └── council.py        # Self-contained CLI script
-└── council-config.json       # Model configuration
+│       └── council.py                # Self-contained CLI script
+└── council-config.json               # Model configuration
+
+skills/                               # OpenClaw skill
+└── council/
+    ├── SKILL.md                      # OpenClaw skill manifest
+    ├── scripts/
+    │   └── council.py → (symlink)    # Shared script
+    └── config/
+        └── council-config.json → (symlink)  # Shared config
 ```
 
 ## Configuration
@@ -128,6 +136,37 @@ python .claude/skills/council/scripts/council.py "What is 2+2?"
 # Run with custom config
 python .claude/skills/council/scripts/council.py --config /path/to/config.json "question"
 ```
+
+## OpenClaw Skill
+
+The OpenClaw-compatible skill lives in `skills/council/`. It shares the same Python script and config via symlinks.
+
+### Installation
+
+Copy or symlink `skills/council/` into your OpenClaw workspace skills directory, or install via ClawHub:
+
+```bash
+clawhub install council
+```
+
+### Configuration
+
+Set `POE_API_KEY` via OpenClaw's skill config injection:
+
+```json5
+{
+  skills: {
+    entries: {
+      council: {
+        enabled: true,
+        apiKey: "YOUR_POE_API_KEY",
+      },
+    },
+  },
+}
+```
+
+AWS credentials for Bedrock should be configured via `aws configure` or environment variables as usual.
 
 ## Key Design Decisions
 
