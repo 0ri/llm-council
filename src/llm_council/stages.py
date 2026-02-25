@@ -12,7 +12,7 @@ from typing import Any
 from .context import CouncilContext
 from .models import Stage1Result, Stage2Result, Stage3Result
 from .parsing import parse_ranking_from_text
-from .progress import ModelStatus, ProgressManager
+from .progress import ModelStatus
 from .prompts import (
     RANKING_PROMPT_TEMPLATE,
     RANKING_SYSTEM_MESSAGE_TEMPLATE,
@@ -477,7 +477,7 @@ async def stage2_collect_rankings(
 
         retry_results = await asyncio.gather(*retry_tasks)
 
-        for retry_idx, retry_result in zip(retry_indices, retry_results):
+        for retry_idx, retry_result in zip(retry_indices, retry_results, strict=True):
             if retry_result is not None:
                 ranking_data, token_usage = retry_result
                 if ranking_data is not None:

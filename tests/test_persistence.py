@@ -9,7 +9,7 @@ from llm_council.persistence import RunLogger
 class TestRunLogger:
     def test_creates_directory(self, tmp_path):
         log_dir = tmp_path / "logs" / "nested"
-        logger = RunLogger(log_dir, "test-run-id")
+        RunLogger(log_dir, "test-run-id")
         assert log_dir.exists()
 
     def test_writes_jsonl_records(self, tmp_path):

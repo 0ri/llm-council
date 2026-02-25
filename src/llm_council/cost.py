@@ -10,6 +10,7 @@ logger = logging.getLogger("llm-council")
 
 try:
     import tiktoken
+
     _ENCODER = tiktoken.get_encoding("cl100k_base")
     HAS_TIKTOKEN = True
 except ImportError:

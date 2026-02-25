@@ -300,9 +300,7 @@ class TestStage2QualityGate:
                 if name == "Model2" and call_counts[name] == 1:
                     return {"content": "This is garbage that cannot be parsed as a ranking."}, None
 
-                return {
-                    "content": '```json\n{"ranking": ["Response A", "Response B"]}\n```'
-                }, None
+                return {"content": '```json\n{"ranking": ["Response A", "Response B"]}\n```'}, None
 
             mock_query.side_effect = mock_query_response
 
@@ -339,9 +337,7 @@ class TestStage2QualityGate:
             async def mock_query_response(model_config, messages, *args, **kwargs):
                 name = model_config.get("name", "unknown")
                 call_counts[name] = call_counts.get(name, 0) + 1
-                return {
-                    "content": '```json\n{"ranking": ["Response A", "Response B"]}\n```'
-                }, None
+                return {"content": '```json\n{"ranking": ["Response A", "Response B"]}\n```'}, None
 
             mock_query.side_effect = mock_query_response
 
@@ -383,9 +379,7 @@ class TestStage2QualityGate:
                 if name == "Model2":
                     return {"content": "Completely unparseable garbage text."}, None
 
-                return {
-                    "content": '```json\n{"ranking": ["Response A", "Response B"]}\n```'
-                }, None
+                return {"content": '```json\n{"ranking": ["Response A", "Response B"]}\n```'}, None
 
             mock_query.side_effect = mock_query_response
 
@@ -427,9 +421,7 @@ class TestStage2QualityGate:
                 if name == "Model2":
                     return {"content": "Completely unparseable garbage text."}, None
 
-                return {
-                    "content": '```json\n{"ranking": ["Response A", "Response B"]}\n```'
-                }, None
+                return {"content": '```json\n{"ranking": ["Response A", "Response B"]}\n```'}, None
 
             mock_query.side_effect = mock_query_response
 

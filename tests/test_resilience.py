@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from llm_council.cost import CouncilCostTracker, estimate_tokens, HAS_TIKTOKEN
+from llm_council.cost import HAS_TIKTOKEN, CouncilCostTracker, estimate_tokens
 from llm_council.providers import CircuitBreaker, get_circuit_breaker, reset_circuit_breakers
 
 
