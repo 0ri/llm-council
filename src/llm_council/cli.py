@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
 import logging
@@ -183,82 +184,45 @@ async def _list_available_models() -> None:
         print("  (OPENROUTER_API_KEY not set)", file=sys.stderr)
 
 
+def _build_parser() -> argparse.ArgumentParser:
+    """Build the argument parser."""
+    parser = argparse.ArgumentParser(
+        prog="llm-council",
+        description="Multi-model LLM deliberation with anonymized peer review.",
+    )
+    parser.add_argument("question", nargs="?", default=None, help="The question to ask the council")
+    parser.add_argument("--config", dest="config", metavar="PATH", help="Path to council config JSON file")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging")
+    parser.add_argument("--manifest", action="store_true", help="Print run manifest JSON to stderr")
+    parser.add_argument("--log-dir", dest="log_dir", metavar="DIR", help="Write JSONL run logs to this directory")
+    parser.add_argument("--stage", type=int, choices=[1, 2, 3], default=3, help="Maximum stage to run (default: 3)")
+    parser.add_argument("--dry-run", dest="dry_run", action="store_true", help="Preview config and costs, no API calls")
+    parser.add_argument("--list-models", dest="list_models", action="store_true", help="List available models and exit")
+    parser.add_argument("--flatten", dest="flatten", metavar="PATH", help="Flatten a directory and prepend to question")
+    return parser
+
+
 def main():
     """Main entry point."""
-    # Parse arguments
-    args = sys.argv[1:]
-
-    # Handle flags
-    config_path = None
-    question = None
-    verbose = False
-    print_manifest = False
-    log_dir = None
-    max_stage = 3
-    dry_run = False
-    list_models = False
-    flatten_path = None
-
-    i = 0
-    while i < len(args):
-        if args[i] == "--config" and i + 1 < len(args):
-            config_path = args[i + 1]
-            i += 2
-        elif args[i] in ["-v", "--verbose"]:
-            verbose = True
-            i += 1
-        elif args[i] == "--manifest":
-            print_manifest = True
-            i += 1
-        elif args[i] == "--log-dir" and i + 1 < len(args):
-            log_dir = args[i + 1]
-            i += 2
-        elif args[i] == "--stage" and i + 1 < len(args):
-            try:
-                max_stage = int(args[i + 1])
-                if max_stage not in (1, 2, 3):
-                    print("Error: --stage must be 1, 2, or 3", file=sys.stderr)
-                    sys.exit(1)
-            except ValueError:
-                print("Error: --stage must be 1, 2, or 3", file=sys.stderr)
-                sys.exit(1)
-            i += 2
-        elif args[i] == "--dry-run":
-            dry_run = True
-            i += 1
-        elif args[i] == "--list-models":
-            list_models = True
-            i += 1
-        elif args[i] == "--flatten" and i + 1 < len(args):
-            flatten_path = args[i + 1]
-            i += 2
-        else:
-            question = args[i]
-            i += 1
+    parser = _build_parser()
+    args = parser.parse_args()
 
     # --list-models works without a question
-    if list_models:
-        setup_logging(verbose=verbose)
+    if args.list_models:
+        setup_logging(verbose=args.verbose)
         asyncio.run(_list_available_models())
         return
 
-    if not args:
-        print(
-            "Usage: llm-council [--config PATH] [-v] [--manifest] [--log-dir DIR] "
-            '[--stage 1|2|3] [--dry-run] [--list-models] [--flatten PATH] "question"',
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    if not args.question:
+        parser.error("No question provided")
 
-    if not question:
-        print("Error: No question provided", file=sys.stderr)
-        sys.exit(1)
+    question = args.question
 
     # Setup logging
-    setup_logging(verbose=verbose)
+    setup_logging(verbose=args.verbose)
 
     # Load config
-    config = load_config(config_path)
+    config = load_config(args.config)
 
     # Validate config early for better error reporting
     errors = validate_config(config)
@@ -269,15 +233,15 @@ def main():
         sys.exit(1)
 
     # --dry-run: print summary and exit without API calls
-    if dry_run:
+    if args.dry_run:
         _print_dry_run(config, question)
         return
 
     # --flatten: prepend flattened directory content to question
-    if flatten_path:
+    if args.flatten:
         from .flattener import flatten_directory
 
-        flattened = flatten_directory(flatten_path)
+        flattened = flatten_directory(args.flatten)
         print(
             f"Flattened {flattened.file_count} files (est. ~{flattened.estimated_tokens:,} tokens)",
             file=sys.stderr,
@@ -292,7 +256,7 @@ def main():
 
     # Run council
     result = asyncio.run(
-        run_council(question, config, print_manifest=print_manifest, log_dir=log_dir, max_stage=max_stage)
+        run_council(question, config, print_manifest=args.manifest, log_dir=args.log_dir, max_stage=args.stage)
     )
 
     # Output result

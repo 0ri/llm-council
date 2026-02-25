@@ -69,6 +69,13 @@ class CouncilContext:
                 raise ValueError(f"Unknown provider: {provider_name}")
         return self.providers[provider_name]
 
+    async def close(self) -> None:
+        """Close all providers that support cleanup."""
+        for provider in self.providers.values():
+            close = getattr(provider, "close", None)
+            if close is not None and asyncio.iscoroutinefunction(close):
+                await close()
+
     def get_circuit_breaker(self, identifier: str) -> CircuitBreaker:
         """Return a cached circuit breaker for *identifier*, creating it lazily."""
         if identifier not in self.circuit_breakers:

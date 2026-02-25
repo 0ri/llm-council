@@ -435,3 +435,55 @@ class TestStage2QualityGate:
 
             model2_result = [r for r in stage2_results if r.model == "Model2"][0]
             assert model2_result.is_valid_ballot is False
+
+
+class TestBudgetEnforcement:
+    """Test that budget guard blocks queries when limits are exceeded."""
+
+    @pytest.mark.asyncio
+    async def test_budget_blocks_query(self):
+        """query_model returns (None, None) when budget is exceeded."""
+        from llm_council.budget import BudgetGuard
+        from llm_council.stages import query_model
+
+        ctx = CouncilContext(
+            poe_api_key="test-key",
+            cost_tracker=CouncilCostTracker(),
+            progress=ProgressManager(is_tty=False),
+        )
+        ctx.budget_guard = BudgetGuard(max_tokens=10)  # very low limit
+
+        model_config = {"name": "TestModel", "provider": "poe", "bot_name": "TestBot"}
+        messages = [{"role": "user", "content": "This message will exceed the tiny budget " * 10}]
+
+        with patch("llm_council.stages.CouncilContext.get_provider") as mock_get_provider:
+            result, usage = await query_model(model_config, messages, ctx)
+
+            assert result is None
+            assert usage is None
+            mock_get_provider.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_budget_allows_query_within_limit(self):
+        """query_model proceeds when budget is not exceeded."""
+        from llm_council.budget import BudgetGuard
+        from llm_council.stages import query_model
+
+        ctx = CouncilContext(
+            poe_api_key="test-key",
+            cost_tracker=CouncilCostTracker(),
+            progress=ProgressManager(is_tty=False),
+        )
+        ctx.budget_guard = BudgetGuard(max_tokens=1_000_000)  # generous limit
+
+        model_config = {"name": "TestModel", "provider": "poe", "bot_name": "TestBot"}
+        messages = [{"role": "user", "content": "Hi"}]
+
+        mock_provider = AsyncMock()
+        mock_provider.query = AsyncMock(return_value=("Hello back", None))
+
+        with patch.object(ctx, "get_provider", return_value=mock_provider):
+            result, usage = await query_model(model_config, messages, ctx)
+
+            assert result is not None
+            assert result["content"] == "Hello back"

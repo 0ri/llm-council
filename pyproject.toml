@@ -52,6 +52,7 @@ where = ["src"]
 
 [project.scripts]
 llm-council = "llm_council.cli:main"
+flatten-project = "llm_council.flattener:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

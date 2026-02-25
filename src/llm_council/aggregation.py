@@ -113,8 +113,10 @@ def calculate_aggregate_rankings(
             parsed_ranking = ranking.get("parsed_ranking", [])
             is_valid = ranking.get("is_valid_ballot", False)
 
-        if is_valid:
-            valid_ballots += 1
+        if not is_valid:
+            continue
+
+        valid_ballots += 1
 
         # Get the appropriate label mapping for this ranker
         if per_ranker_mappings:

@@ -178,3 +178,73 @@ class TestBordaScore:
         """Test Borda score for empty positions."""
         score = calculate_borda_score([], n_candidates=3)
         assert score == 0.0
+
+
+class TestInvalidBallotExclusion:
+    """Regression tests: invalid ballots must not influence rankings."""
+
+    def test_invalid_ballots_excluded_from_positions(self):
+        """Invalid ballots are counted in total but excluded from ranking math."""
+        from llm_council.models import Stage2Result
+
+        # Two valid ballots: both rank A first, B second, C third
+        valid1 = Stage2Result(
+            model="Ranker1",
+            ranking="",
+            parsed_ranking=["Response A", "Response B", "Response C"],
+            is_valid_ballot=True,
+        )
+        valid2 = Stage2Result(
+            model="Ranker2",
+            ranking="",
+            parsed_ranking=["Response A", "Response B", "Response C"],
+            is_valid_ballot=True,
+        )
+        # One invalid ballot with reversed order — should NOT affect results
+        invalid = Stage2Result(
+            model="Ranker3",
+            ranking="",
+            parsed_ranking=["Response C", "Response B", "Response A"],
+            is_valid_ballot=False,
+        )
+
+        per_ranker_mappings = {
+            "Ranker1": {"Response A": "Model-A", "Response B": "Model-B", "Response C": "Model-C"},
+            "Ranker2": {"Response A": "Model-A", "Response B": "Model-B", "Response C": "Model-C"},
+            "Ranker3": {"Response C": "Model-A", "Response B": "Model-B", "Response A": "Model-C"},
+        }
+
+        rankings, valid_count, total_count = calculate_aggregate_rankings(
+            [valid1, valid2, invalid], per_ranker_mappings
+        )
+
+        assert valid_count == 2
+        assert total_count == 3
+
+        # Model-A should be ranked #1 (avg position 1.0) from the two valid ballots
+        ranking_map = {r.model: r for r in rankings}
+        assert ranking_map["Model-A"].average_rank == 1.0
+        assert ranking_map["Model-A"].rankings_count == 2
+
+        # Model-C should be ranked #3 (avg position 3.0)
+        assert ranking_map["Model-C"].average_rank == 3.0
+        assert ranking_map["Model-C"].rankings_count == 2
+
+    def test_all_invalid_produces_empty_rankings(self):
+        """When all ballots are invalid, no rankings are produced."""
+        from llm_council.models import Stage2Result
+
+        invalid = Stage2Result(
+            model="Ranker1",
+            ranking="",
+            parsed_ranking=["Response A", "Response B"],
+            is_valid_ballot=False,
+        )
+
+        mappings = {"Ranker1": {"Response A": "Model-A", "Response B": "Model-B"}}
+
+        rankings, valid_count, total_count = calculate_aggregate_rankings([invalid], mappings)
+
+        assert valid_count == 0
+        assert total_count == 1
+        assert rankings == []

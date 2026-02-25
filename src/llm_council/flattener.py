@@ -92,6 +92,12 @@ SKIP_FILES = frozenset(
         "package-lock.json",
         "yarn.lock",
         "uv.lock",
+        "settings.local.json",
+        ".env",
+        ".env.local",
+        "credentials.json",
+        "*.pem",
+        "*.key",
     }
 )
 
@@ -255,3 +261,52 @@ def flatten_directory(
         estimated_tokens=tokens,
         markdown=markdown,
     )
+
+
+def main() -> None:
+    """CLI entry point for flatten-project."""
+    import sys
+
+    args = sys.argv[1:]
+
+    # Parse flags
+    no_gitignore = False
+    max_size = 100_000
+    paths: list[str] = []
+
+    i = 0
+    while i < len(args):
+        if args[i] == "--no-gitignore":
+            no_gitignore = True
+            i += 1
+        elif args[i] == "--max-file-size" and i + 1 < len(args):
+            try:
+                max_size = int(args[i + 1])
+            except ValueError:
+                print(f"Error: --max-file-size must be an integer, got '{args[i + 1]}'", file=sys.stderr)
+                sys.exit(1)
+            i += 2
+        elif args[i].startswith("-"):
+            print(f"Unknown flag: {args[i]}", file=sys.stderr)
+            print("Usage: flatten-project [--no-gitignore] [--max-file-size BYTES] PATH [PATH ...]", file=sys.stderr)
+            sys.exit(1)
+        else:
+            paths.append(args[i])
+            i += 1
+
+    if not paths:
+        print("Usage: flatten-project [--no-gitignore] [--max-file-size BYTES] PATH [PATH ...]", file=sys.stderr)
+        sys.exit(1)
+
+    for path in paths:
+        try:
+            result = flatten_directory(path, respect_gitignore=not no_gitignore, max_file_size=max_size)
+        except (FileNotFoundError, NotADirectoryError) as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+
+        print(result.markdown)
+        print(
+            f"# {result.file_count} files, {result.total_chars:,} chars, ~{result.estimated_tokens:,} tokens",
+            file=sys.stderr,
+        )

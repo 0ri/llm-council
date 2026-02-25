@@ -192,12 +192,12 @@ class TestMain:
     """Test the main entry point."""
 
     def test_main_no_arguments(self):
-        """Test main with no arguments shows usage."""
+        """Test main with no arguments shows usage and exits."""
         with patch("sys.argv", ["council.py"]):
             with pytest.raises(SystemExit) as exc_info:
-                with patch("sys.stderr"):
-                    main()
-            assert exc_info.value.code == 1
+                main()
+            # argparse exits with code 2 for usage errors
+            assert exc_info.value.code == 2
 
     def test_main_with_question(self):
         """Test main with just a question."""
@@ -259,25 +259,21 @@ class TestMain:
                     with patch("builtins.print"):
                         main()
 
-                    # Check print_manifest was passed
-                    # This is a coroutine, we can't easily inspect kwargs
-                    # but the test verifies the flag is parsed
-
     def test_main_no_question_provided(self):
         """Test main when no question is provided after flags."""
         with patch("sys.argv", ["council.py", "--config", "config.json"]):
             with pytest.raises(SystemExit) as exc_info:
-                with patch("sys.stderr"):
-                    main()
-            assert exc_info.value.code == 1
+                main()
+            # argparse exits with code 2 for missing required args
+            assert exc_info.value.code == 2
 
     def test_main_config_validation_errors(self):
         """Test main when config validation fails."""
         with patch("sys.argv", ["council.py", "Question"]):
             with patch("llm_council.cli.load_config") as mock_load:
                 with patch("llm_council.cli.validate_config") as mock_validate:
-                    with patch("llm_council.cli.setup_logging"):  # Mock setup_logging to avoid interference
-                        with patch("llm_council.cli.logger") as mock_logger:  # Mock the logger to avoid logging issues
+                    with patch("llm_council.cli.setup_logging"):
+                        with patch("llm_council.cli.logger") as mock_logger:
                             mock_load.return_value = {"invalid": "config"}
                             mock_validate.return_value = ["Error 1", "Error 2"]
 
@@ -288,20 +284,6 @@ class TestMain:
                             assert exc_info.value.code == 1
                             # Verify error was logged
                             mock_logger.error.assert_called()
-
-    def test_main_multiple_questions(self):
-        """Test main with multiple question arguments (should concatenate)."""
-        with patch("sys.argv", ["council.py", "What", "is", "2+2?"]):
-            with patch("llm_council.cli.asyncio.run") as mock_run:
-                with patch("llm_council.cli.validate_config", return_value=[]):
-                    mock_run.return_value = "Answer"
-
-                    with patch("builtins.print"):
-                        main()
-
-                    # Should join the words but only take last non-flag arg
-                    # Based on the implementation, it takes the last arg
-                    # Question should be "2+2?"
 
     def test_main_config_path_with_spaces(self):
         """Test main with config path containing spaces."""
@@ -339,6 +321,13 @@ class TestMain:
         finally:
             os.unlink(temp_path)
 
+    def test_help_flag(self):
+        """Test that --help works."""
+        with patch("sys.argv", ["council.py", "--help"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 0
+
 
 class TestStageFlag:
     """Test --stage flag parsing."""
@@ -366,17 +355,16 @@ class TestStageFlag:
         """Test --stage with invalid value exits with error."""
         with patch("sys.argv", ["council.py", "--stage", "5", "Question"]):
             with pytest.raises(SystemExit) as exc_info:
-                with patch("sys.stderr"):
-                    main()
-            assert exc_info.value.code == 1
+                main()
+            # argparse exits with code 2 for invalid choices
+            assert exc_info.value.code == 2
 
     def test_non_numeric_stage_exits(self):
         """Test --stage with non-numeric value exits with error."""
         with patch("sys.argv", ["council.py", "--stage", "abc", "Question"]):
             with pytest.raises(SystemExit) as exc_info:
-                with patch("sys.stderr"):
-                    main()
-            assert exc_info.value.code == 1
+                main()
+            assert exc_info.value.code == 2
 
 
 class TestDryRun:
@@ -425,7 +413,6 @@ class TestFlattenFlag:
     def test_flatten_prepends_to_question(self):
         """Test that --flatten prepends flattened content to the question."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            (os.path.join(tmpdir, "test.py"),)
             with open(os.path.join(tmpdir, "test.py"), "w") as f:
                 f.write("x = 1")
 

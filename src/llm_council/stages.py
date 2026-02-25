@@ -9,7 +9,9 @@ import secrets
 import time
 from typing import Any
 
+from .budget import BudgetExceededError
 from .context import CouncilContext
+from .cost import estimate_tokens
 from .models import Stage1Result, Stage2Result, Stage3Result
 from .parsing import parse_ranking_from_text
 from .progress import ModelStatus
@@ -62,6 +64,19 @@ async def query_model(
     if cb.is_open:
         logger.warning(f"Circuit breaker open for {cb_key}, skipping {model_name}")
         return None, None
+
+    # Budget check before querying
+    if ctx.budget_guard is not None:
+        input_text = " ".join(m.get("content", "") for m in messages)
+        if system_message:
+            input_text += " " + system_message
+        estimated_input = estimate_tokens(input_text)
+        estimated_output = 2000  # conservative estimate
+        try:
+            ctx.budget_guard.check_and_update(estimated_input, estimated_output, model_name)
+        except BudgetExceededError:
+            logger.warning(f"Budget exceeded, skipping {model_name}")
+            return None, None
 
     # Add messages and system_message to config for provider access
     config_with_context = model_config.copy()
