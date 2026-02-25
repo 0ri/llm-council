@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from llm_council.formatting import format_output
+from llm_council.formatting import format_output, format_stage1_output, format_stage2_output
+from llm_council.models import Stage1Result
 
 
 class TestFormatOutput:
@@ -301,3 +302,86 @@ Final paragraph."""
 
         # Should display as given even if illogical
         assert "5/3" in output
+
+
+class TestFormatStage1Output:
+    """Test the format_stage1_output function."""
+
+    def test_basic_stage1_output(self):
+        """Test basic Stage 1 formatting with Stage1Result objects."""
+        results = [
+            Stage1Result(model="Claude Opus", response="Claude's answer about REST APIs."),
+            Stage1Result(model="GPT-5", response="GPT's take on the topic."),
+        ]
+
+        output = format_stage1_output(results)
+
+        assert "## LLM Council Response (Stage 1 only)" in output
+        assert "### Claude Opus" in output
+        assert "Claude's answer about REST APIs." in output
+        assert "### GPT-5" in output
+        assert "GPT's take on the topic." in output
+
+    def test_stage1_output_with_dicts(self):
+        """Test Stage 1 formatting with dict results (backwards compat)."""
+        results = [
+            {"model": "Model A", "response": "Answer A"},
+            {"model": "Model B", "response": "Answer B"},
+        ]
+
+        output = format_stage1_output(results)
+
+        assert "### Model A" in output
+        assert "Answer A" in output
+        assert "### Model B" in output
+
+    def test_stage1_output_no_rankings(self):
+        """Test that Stage 1 output has no rankings table."""
+        results = [Stage1Result(model="Model", response="Answer")]
+
+        output = format_stage1_output(results)
+
+        assert "Rank" not in output
+        assert "Borda Score" not in output
+        assert "Synthesized" not in output
+
+    def test_stage1_empty_results(self):
+        """Test Stage 1 formatting with no results."""
+        output = format_stage1_output([])
+
+        assert "## LLM Council Response (Stage 1 only)" in output
+
+
+class TestFormatStage2Output:
+    """Test the format_stage2_output function."""
+
+    def test_basic_stage2_output(self):
+        """Test basic Stage 2 formatting."""
+        rankings = [
+            {"model": "Model A", "average_rank": 1.5, "confidence_interval": (1.2, 1.8), "borda_score": 8},
+            {"model": "Model B", "average_rank": 2.5, "confidence_interval": (2.1, 2.9), "borda_score": 4},
+        ]
+        results = [
+            Stage1Result(model="Model A", response="Answer A"),
+            Stage1Result(model="Model B", response="Answer B"),
+        ]
+
+        output = format_stage2_output(rankings, results, valid_ballots=2, total_ballots=2)
+
+        assert "## LLM Council Response (Stages 1-2, no synthesis)" in output
+        assert "### Model Rankings (by peer review)" in output
+        assert "| Rank | Model | Avg Position | 95% CI | Borda Score |" in output
+        assert "| 1 | Model A | 1.5 | [1.2, 1.8] | 8 |" in output
+        assert "### Individual Responses" in output
+        assert "#### Model A" in output
+        assert "Answer A" in output
+
+    def test_stage2_no_synthesis_section(self):
+        """Test that Stage 2 output has no synthesis section."""
+        rankings = [{"model": "M", "average_rank": 1.0, "confidence_interval": (1.0, 1.0), "borda_score": 3}]
+        results = [Stage1Result(model="M", response="A")]
+
+        output = format_stage2_output(rankings, results, 1, 1)
+
+        assert "Synthesized Answer" not in output
+        assert "Chairman" not in output

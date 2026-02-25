@@ -26,4 +26,4 @@ jobs:
         with:
           version: "latest"
       - run: uv sync --dev
-      - run: uv run pytest tests/ -v --tb=short
+      - run: uv run pytest tests/ -v --tb=short --cov=llm_council --cov-report=term-missing --cov-report=xml

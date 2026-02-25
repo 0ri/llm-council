@@ -28,8 +28,20 @@ class PoeModelConfig(BaseModel):
     reasoning_effort: Literal["medium", "high", "Xhigh", "minimal", "low"] | None = None
 
 
+class OpenRouterModelConfig(BaseModel):
+    """Configuration for an OpenRouter model."""
+
+    model_config = ConfigDict(protected_namespaces=())
+
+    name: str
+    provider: Literal["openrouter"]
+    model_id: str
+    temperature: float | None = None
+    max_tokens: int | None = None
+
+
 # Discriminated union on the 'provider' field
-ModelConfig = BedrockModelConfig | PoeModelConfig
+ModelConfig = BedrockModelConfig | PoeModelConfig | OpenRouterModelConfig
 
 
 class CouncilConfig(BaseModel):

@@ -52,6 +52,8 @@ async def query_model(
     # Build model-specific circuit breaker key
     if provider_name == "poe" and bot_name:
         cb_key = f"{provider_name}:{bot_name}"
+    elif provider_name == "openrouter":
+        cb_key = f"openrouter:{model_config.get('model_id', model_name)}"
     else:
         cb_key = f"{provider_name}:{model_name}"
 

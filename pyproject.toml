@@ -13,12 +13,14 @@ dependencies = [
     "tenacity>=8.2",
     "rich>=13.0",
     "tiktoken>=0.7",
+    "pathspec~=0.12.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.23.0",
+    "pytest-cov>=5.0",
     "ruff>=0.4.0",
 ]
 
@@ -26,6 +28,7 @@ dev = [
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.23.0",
+    "pytest-cov>=5.0",
     "ruff>=0.4.0",
 ]
 
@@ -53,3 +56,15 @@ llm-council = "llm_council.cli:main"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["llm_council"]
+
+[tool.coverage.report]
+fail_under = 70
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.",
+    "if TYPE_CHECKING:",
+]

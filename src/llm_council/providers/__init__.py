@@ -7,6 +7,7 @@ import time as _time
 import typing
 
 from .bedrock import BedrockProvider
+from .openrouter import OpenRouterProvider
 from .poe import PoeProvider
 
 # Configurable defaults
@@ -130,6 +131,10 @@ def get_provider(provider_name: str, api_key: str | None = None) -> Provider:
             if not api_key:
                 raise ValueError("POE_API_KEY required for Poe provider")
             _providers[provider_name] = PoeProvider(api_key)
+        elif provider_name == "openrouter":
+            if not api_key:
+                raise ValueError("OPENROUTER_API_KEY required for OpenRouter provider")
+            _providers[provider_name] = OpenRouterProvider(api_key)
         else:
             raise ValueError(f"Unknown provider: {provider_name}")
     return _providers[provider_name]
@@ -149,6 +154,7 @@ __all__ = [
     "DEFAULT_TIMEOUT",
     "MAX_RETRIES",
     "MODEL_TIMEOUT",
+    "OpenRouterProvider",
     "Provider",
     "PoeProvider",
     "get_circuit_breaker",

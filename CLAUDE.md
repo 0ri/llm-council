@@ -30,10 +30,11 @@ LLM Council runs multi-model deliberation with anonymized peer review. It querie
 
 - **Bedrock**: Claude Opus 4.6 (council member + chairman)
 - **Poe.com**: GPT-5.3-Codex, Gemini-3.1-Pro, Grok-4
+- **OpenRouter**: Any model via OpenAI-compatible API (real token usage reporting)
 
 ### Provider Abstraction
 
-Providers (Bedrock, Poe) are implemented as classes behind a common interface. New providers can be added by implementing the Provider protocol.
+Providers (Bedrock, Poe, OpenRouter) are implemented as classes behind a common interface. New providers can be added by implementing the Provider protocol.
 
 ### Key Files
 
@@ -47,8 +48,10 @@ src/llm_council/                      # Main package
 │   ├── __init__.py
 │   ├── base.py                       # Provider protocol
 │   ├── bedrock.py                    # AWS Bedrock provider
-│   └── poe.py                        # Poe.com provider
+│   ├── poe.py                        # Poe.com provider
+│   └── openrouter.py                 # OpenRouter provider
 ├── aggregation.py                    # Ranking aggregation algorithms
+├── flattener.py                      # Project directory flattener
 ├── parsing.py                        # Response parsing utilities
 ├── security.py                       # Injection hardening
 ├── formatting.py                     # Output formatting
@@ -126,6 +129,9 @@ Edit `.claude/council-config.json` to change models:
 | Bedrock | `budget_tokens` | Extended thinking token budget (e.g., 10000) |
 | Poe | `web_search` | Enable web search (true/false) |
 | Poe | `reasoning_effort` | GPT: "medium"/"high"/"Xhigh", Gemini: "minimal"/"low"/"high" |
+| OpenRouter | `model_id` | OpenRouter model ID (e.g., "openai/gpt-4o") |
+| OpenRouter | `temperature` | Optional temperature (0.0-2.0) |
+| OpenRouter | `max_tokens` | Optional max output tokens |
 
 ## Security
 
@@ -140,10 +146,11 @@ Edit `.claude/council-config.json` to change models:
 
 - **AWS credentials** configured for Bedrock (Claude models)
 - **POE_API_KEY** environment variable for Poe.com models
+- **OPENROUTER_API_KEY** environment variable for OpenRouter models
 
 ## Available Models
 
-Any model available on Bedrock or Poe.com can be used. The config examples show current state-of-the-art choices, but you can swap in any model either provider supports.
+Any model available on Bedrock, Poe.com, or OpenRouter can be used. Run `llm-council --list-models` to discover available models.
 
 ### Bedrock
 Any model in your AWS Bedrock region (Anthropic, Meta, Mistral, Cohere, etc.). Examples:
@@ -156,6 +163,11 @@ Any bot on Poe's API (hundreds of models including open-source). Examples:
 - `Gemini-3.1-Pro`, `Gemini-3-Flash` - supports web_search, thinking_level
 - `Grok-4`
 
+### OpenRouter
+Any model on OpenRouter's API (stable, OpenAI-compatible, real token usage). Examples:
+- `openai/gpt-4o`, `anthropic/claude-3.5-sonnet`, `google/gemini-pro`
+- `meta-llama/llama-3-70b`, `mistralai/mixtral-8x7b`
+
 ## Direct Usage
 
 The council is available as a Python package:
@@ -164,9 +176,24 @@ The council is available as a Python package:
 # Install the package
 uv sync  # or: pip install -e .
 
-# Run via CLI entry point
+# Run via CLI entry point (full 3-stage deliberation)
 llm-council "What is 2+2?"
 llm-council --config /path/to/config.json "question"
+
+# Run only Stage 1 (individual responses, no ranking/synthesis)
+llm-council --stage 1 "question"
+
+# Run Stages 1-2 (responses + rankings, no synthesis)
+llm-council --stage 2 "question"
+
+# Dry run (preview cost/model list, no API calls)
+llm-council --dry-run "question"
+
+# List available models from all providers
+llm-council --list-models
+
+# Flatten a codebase and ask for review
+llm-council --flatten ./src "Review this code for bugs"
 
 # Or run the skill script directly
 python .claude/skills/council/scripts/council.py "What is 2+2?"
@@ -209,7 +236,7 @@ AWS credentials for Bedrock should be configured via `aws configure` or environm
 Models receive "Response A", "Response B", etc. instead of model names. This prevents bias where models might favor their own family or disfavor competitors.
 
 ### Hybrid Providers
-Bedrock for Anthropic models (already configured, no extra API key). Poe.com for others (single API key covers GPT, Gemini, Grok).
+Bedrock for Anthropic models (already configured, no extra API key). Poe.com for others (single API key covers GPT, Gemini, Grok). OpenRouter as an alternative stable API with real token usage reporting.
 
 ### Subagent Execution
 The skill spawns a subagent to run the council, preserving the main conversation's context window.

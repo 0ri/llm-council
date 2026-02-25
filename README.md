@@ -1,6 +1,7 @@
 # LLM Council
 
 ![CI](https://github.com/0ri/llm-council/actions/workflows/ci.yml/badge.svg)
+![Coverage](https://img.shields.io/badge/coverage-70%25+-brightgreen)
 
 Multi-model LLM deliberation with anonymized peer review. Available as a Claude Code skill and an OpenClaw skill.
 
@@ -24,6 +25,7 @@ flowchart TD
         direction LR
         B["Bedrock Provider"]
         P["Poe Provider"]
+        O["OpenRouter Provider"]
         M1["Claude Opus 4.6"]
         M2["GPT-5.3-Codex"]
         M3["Gemini-3.1-Pro"]
@@ -106,6 +108,13 @@ export POE_API_KEY=your-poe-api-key-here
 
 Get your Poe API key at [poe.com/api_key](https://poe.com/api_key).
 
+**OpenRouter (hundreds of models via single API):**
+```bash
+export OPENROUTER_API_KEY=your-openrouter-api-key-here
+```
+
+Get your OpenRouter API key at [openrouter.ai/keys](https://openrouter.ai/keys).
+
 ### Model Configuration
 
 Edit the council config (`council-config.json`):
@@ -129,7 +138,7 @@ Edit the council config (`council-config.json`):
 
 ## Available Models
 
-You can use **any model** available on Bedrock or Poe.com — both providers offer hundreds of options including open-source models, smaller/faster models, and specialized models. The config examples above show current state-of-the-art choices, but you can swap in whatever models you want.
+You can use **any model** available on Bedrock, Poe.com, or OpenRouter. Use `llm-council --list-models` to discover what's available with your current credentials.
 
 ### Bedrock
 Any model available in your AWS Bedrock region. Examples:
@@ -143,6 +152,13 @@ Any bot available on Poe's API. Examples:
 - xAI: Grok-4
 - Plus hundreds of other models and community bots
 
+### OpenRouter
+Any model on OpenRouter's API (OpenAI-compatible, real token usage). Examples:
+- `openai/gpt-4o`, `openai/o1-preview`
+- `anthropic/claude-3.5-sonnet`, `google/gemini-pro`
+- `meta-llama/llama-3-70b`, `mistralai/mixtral-8x7b`
+- Hundreds more — run `llm-council --list-models` to see all
+
 ## Direct Usage
 
 Install and run the council as a Python package:
@@ -154,11 +170,23 @@ uv sync
 # Or install with pip
 pip install -e .
 
-# Run the council
+# Run the council (full 3-stage deliberation)
 llm-council "What is the capital of France?"
 
-# Or use the skill script directly
-python .claude/skills/council/scripts/council.py "What is the capital of France?"
+# Run only Stage 1 (individual responses, no ranking)
+llm-council --stage 1 "What is the best programming language?"
+
+# Run Stages 1-2 (responses + rankings, no synthesis)
+llm-council --stage 2 "Compare REST vs GraphQL"
+
+# Dry run (preview cost/model list, no API calls)
+llm-council --dry-run "expensive question"
+
+# List available models from all providers
+llm-council --list-models
+
+# Flatten a codebase and ask for review
+llm-council --flatten ./src "Review this code for bugs"
 ```
 
 ## Output Format
@@ -193,11 +221,7 @@ This project was inspired by the desire to evaluate multiple LLMs side by side a
 ## Known Limitations
 
 - **No built-in caching** - repeated queries re-query all models, increasing latency and API costs
-- **Ranking parser relies on models following JSON output format** - if a model returns malformed JSON rankings, parsing may fail
 - **No streaming output** - waits for full responses from all models before displaying results
-- **Limited provider support** - currently only Bedrock and Poe providers implemented, though the architecture supports adding more
-- **No persistence layer** - council sessions and results are not saved for later analysis
-- **Fixed deliberation stages** - the 3-stage process is hardcoded, not configurable for different workflows
 
 ## Contributing
 

@@ -15,7 +15,7 @@ from .aggregation import calculate_aggregate_rankings
 from .budget import BudgetExceededError, create_budget_guard
 from .context import CouncilContext
 from .cost import CouncilCostTracker
-from .formatting import format_output
+from .formatting import format_output, format_stage1_output, format_stage2_output
 from .manifest import RunManifest
 from .models import CouncilConfig
 from .progress import ProgressManager
@@ -58,7 +58,7 @@ def validate_config(config: dict) -> list[str]:
                         model_name = config.get("council_models", [{}])[idx_int].get("name", f"model[{idx}]")
                     else:
                         model_name = config.get("chairman", {}).get("name", "chairman")
-                    errors.append(f"{model_name}: unknown provider (must be one of: bedrock, poe)")
+                    errors.append(f"{model_name}: unknown provider (must be one of: bedrock, poe, openrouter)")
                 else:
                     errors.append(f"{loc}: {msg}")
             elif "model_id" in str(error.get("input", {})) and error["type"] == "union_tag_invalid":
@@ -111,6 +111,13 @@ def validate_config(config: dict) -> list[str]:
     if poe_models and not os.environ.get("POE_API_KEY"):
         errors.append("POE_API_KEY environment variable required for Poe provider models")
 
+    # Check OPENROUTER_API_KEY if any model uses openrouter
+    or_models = [m for m in config.get("council_models", []) if m.get("provider") == "openrouter"]
+    if config.get("chairman", {}).get("provider") == "openrouter":
+        or_models.append(config["chairman"])
+    if or_models and not os.environ.get("OPENROUTER_API_KEY"):
+        errors.append("OPENROUTER_API_KEY environment variable required for OpenRouter provider models")
+
     # Validate budget config if present (not in Pydantic model)
     if "budget" in config:
         budget = config["budget"]
@@ -144,8 +151,9 @@ async def run_council(
     print_manifest: bool = False,
     log_dir: str | None = None,
     context_factory: Any = None,
+    max_stage: int = 3,
 ) -> str:
-    """Run the full 3-stage council process.
+    """Run the council process up to the specified stage.
 
     Args:
         question: The question to ask the council
@@ -153,6 +161,7 @@ async def run_council(
         print_manifest: If True, print manifest JSON to stderr
         log_dir: If set, write JSONL run logs to this directory
         context_factory: Optional callable returning a CouncilContext (for testing)
+        max_stage: Maximum stage to run (1, 2, or 3). Default: 3 (full run).
 
     Returns:
         Formatted council output string
@@ -191,6 +200,7 @@ async def run_council(
     else:
         ctx = CouncilContext(
             poe_api_key=os.environ.get("POE_API_KEY"),
+            openrouter_api_key=os.environ.get("OPENROUTER_API_KEY"),
             cost_tracker=CouncilCostTracker(),
             budget_guard=create_budget_guard(config),
             progress=ProgressManager(),
@@ -204,9 +214,7 @@ async def run_council(
 
     try:
         logger.info("Stage 1: Collecting responses from council...")
-        stage1_results, stage1_token_usages = await stage1_collect_responses(
-            question, council_models, ctx
-        )
+        stage1_results, stage1_token_usages = await stage1_collect_responses(question, council_models, ctx)
 
         if not stage1_results:
             return "Error: All models failed to respond. Please check your API credentials."
@@ -221,6 +229,11 @@ async def run_council(
             model_name = result.model
             token_usage = stage1_token_usages.get(model_name)
             ctx.cost_tracker.record_with_usage(model_name, 1, question, result.response, token_usage)
+
+        if max_stage == 1:
+            total_elapsed = time.time() - start_time
+            await ctx.progress.complete_council(total_elapsed)
+            return format_stage1_output(stage1_results)
 
         logger.info("Stage 2: Collecting peer rankings...")
         stage2_results, per_ranker_label_mappings, stage2_token_usages = await stage2_collect_rankings(
@@ -247,6 +260,11 @@ async def run_council(
 
         if run_logger:
             run_logger.log_aggregation(aggregate_rankings, valid_ballots, total_ballots)
+
+        if max_stage == 2:
+            total_elapsed = time.time() - start_time
+            await ctx.progress.complete_council(total_elapsed)
+            return format_stage2_output(aggregate_rankings, stage1_results, valid_ballots, total_ballots)
 
         # For stage 3, create a unified label mapping (using the first ranker's mapping for consistency)
         # This is needed because the chairman needs a single view of the anonymized labels

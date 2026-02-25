@@ -9,13 +9,13 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import Any
 
 from .budget import BudgetGuard
 from .cost import CouncilCostTracker
 from .progress import ProgressManager
 from .providers import CircuitBreaker, Provider
 from .providers.bedrock import BedrockProvider
+from .providers.openrouter import OpenRouterProvider
 from .providers.poe import PoeProvider
 
 
@@ -28,6 +28,7 @@ class CouncilContext:
     """
 
     poe_api_key: str | None = None
+    openrouter_api_key: str | None = None
     max_concurrent: int = 4
     stage2_max_retries: int = 1
     providers: dict[str, Provider] = field(default_factory=dict)
@@ -60,6 +61,10 @@ class CouncilContext:
                 if not self.poe_api_key:
                     raise ValueError("POE_API_KEY required for Poe provider")
                 self.providers[provider_name] = PoeProvider(self.poe_api_key)
+            elif provider_name == "openrouter":
+                if not self.openrouter_api_key:
+                    raise ValueError("OPENROUTER_API_KEY required for OpenRouter provider")
+                self.providers[provider_name] = OpenRouterProvider(self.openrouter_api_key)
             else:
                 raise ValueError(f"Unknown provider: {provider_name}")
         return self.providers[provider_name]

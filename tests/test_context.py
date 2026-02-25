@@ -8,10 +8,9 @@ from unittest.mock import patch
 import pytest
 
 from llm_council.context import CouncilContext
-from llm_council.cost import CouncilCostTracker
-from llm_council.progress import ProgressManager
 from llm_council.providers import CircuitBreaker
 from llm_council.providers.bedrock import BedrockProvider
+from llm_council.providers.openrouter import OpenRouterProvider
 from llm_council.providers.poe import PoeProvider
 
 
@@ -44,6 +43,18 @@ class TestGetProvider:
             p1 = ctx.get_provider("bedrock")
             p2 = ctx.get_provider("bedrock")
             assert p1 is p2
+
+    def test_openrouter_provider_requires_api_key(self):
+        """get_provider('openrouter') raises ValueError without api_key."""
+        ctx = CouncilContext(openrouter_api_key=None)
+        with pytest.raises(ValueError, match="OPENROUTER_API_KEY required"):
+            ctx.get_provider("openrouter")
+
+    def test_openrouter_provider_with_api_key(self):
+        """get_provider('openrouter') works when api_key is set."""
+        ctx = CouncilContext(openrouter_api_key="test-key")
+        provider = ctx.get_provider("openrouter")
+        assert isinstance(provider, OpenRouterProvider)
 
     def test_unknown_provider_raises(self):
         """get_provider with unknown name raises ValueError."""

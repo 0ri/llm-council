@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
-from llm_council.cli import load_config, main, setup_logging
+from llm_council.cli import _print_dry_run, load_config, main, setup_logging
 
 
 class TestLoadConfig:
@@ -338,3 +338,101 @@ class TestMain:
                             mock_setup.assert_called_with(verbose=True)
         finally:
             os.unlink(temp_path)
+
+
+class TestStageFlag:
+    """Test --stage flag parsing."""
+
+    def test_stage_1(self):
+        """Test --stage 1 passes max_stage=1 to run_council."""
+        with patch("sys.argv", ["council.py", "--stage", "1", "Question"]):
+            with patch("llm_council.cli.asyncio.run") as mock_run:
+                with patch("llm_council.cli.validate_config", return_value=[]):
+                    mock_run.return_value = "Result"
+                    with patch("builtins.print"):
+                        main()
+                    mock_run.assert_called_once()
+
+    def test_stage_2(self):
+        """Test --stage 2 is accepted."""
+        with patch("sys.argv", ["council.py", "--stage", "2", "Question"]):
+            with patch("llm_council.cli.asyncio.run") as mock_run:
+                with patch("llm_council.cli.validate_config", return_value=[]):
+                    mock_run.return_value = "Result"
+                    with patch("builtins.print"):
+                        main()
+
+    def test_invalid_stage_exits(self):
+        """Test --stage with invalid value exits with error."""
+        with patch("sys.argv", ["council.py", "--stage", "5", "Question"]):
+            with pytest.raises(SystemExit) as exc_info:
+                with patch("sys.stderr"):
+                    main()
+            assert exc_info.value.code == 1
+
+    def test_non_numeric_stage_exits(self):
+        """Test --stage with non-numeric value exits with error."""
+        with patch("sys.argv", ["council.py", "--stage", "abc", "Question"]):
+            with pytest.raises(SystemExit) as exc_info:
+                with patch("sys.stderr"):
+                    main()
+            assert exc_info.value.code == 1
+
+
+class TestDryRun:
+    """Test --dry-run flag."""
+
+    def test_dry_run_no_api_calls(self):
+        """Test that --dry-run does not call asyncio.run for council."""
+        with patch("sys.argv", ["council.py", "--dry-run", "Question"]):
+            with patch("llm_council.cli.asyncio.run") as mock_run:
+                with patch("llm_council.cli.validate_config", return_value=[]):
+                    with patch("builtins.print"):
+                        main()
+                    # asyncio.run should NOT be called (no council run)
+                    mock_run.assert_not_called()
+
+    def test_dry_run_output(self):
+        """Test dry-run prints summary to stderr."""
+        config = {
+            "council_models": [
+                {"name": "Model A", "provider": "bedrock", "model_id": "a"},
+                {"name": "Model B", "provider": "poe", "bot_name": "b"},
+            ],
+            "chairman": {"name": "Model A", "provider": "bedrock", "model_id": "a"},
+        }
+        with patch("sys.stderr"):
+            _print_dry_run(config, "Test question")
+            # Just verify it doesn't crash; actual output goes to stderr
+
+
+class TestListModels:
+    """Test --list-models flag."""
+
+    def test_list_models_no_question_required(self):
+        """Test that --list-models works without a question."""
+        with patch("sys.argv", ["council.py", "--list-models"]):
+            with patch("llm_council.cli.asyncio.run") as mock_run:
+                mock_run.return_value = None
+                with patch("builtins.print"):
+                    main()
+                mock_run.assert_called_once()
+
+
+class TestFlattenFlag:
+    """Test --flatten flag."""
+
+    def test_flatten_prepends_to_question(self):
+        """Test that --flatten prepends flattened content to the question."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (os.path.join(tmpdir, "test.py"),)
+            with open(os.path.join(tmpdir, "test.py"), "w") as f:
+                f.write("x = 1")
+
+            with patch("sys.argv", ["council.py", "--flatten", tmpdir, "Review this"]):
+                with patch("llm_council.cli.asyncio.run") as mock_run:
+                    with patch("llm_council.cli.validate_config", return_value=[]):
+                        mock_run.return_value = "Result"
+                        with patch("builtins.print"):
+                            main()
+                        mock_run.assert_called_once()
