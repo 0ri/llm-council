@@ -191,3 +191,72 @@ class TestCreateBudgetGuard:
         assert guard.queries[1]["model"] == "model2"
         assert guard.queries[1]["input_tokens"] == 2000
         assert guard.queries[1]["output_tokens"] == 1000
+
+
+class TestTwoPhaseBudget:
+    """Test the can_afford / commit two-phase budget API."""
+
+    def test_can_afford_does_not_mutate(self):
+        """can_afford() checks but does not change state."""
+        guard = BudgetGuard(max_tokens=5000)
+        guard.can_afford(1000, 1000, "model1")
+
+        assert guard.total_input_tokens == 0
+        assert guard.total_output_tokens == 0
+        assert len(guard.queries) == 0
+
+    def test_can_afford_raises_when_exceeded(self):
+        """can_afford() raises BudgetExceededError without mutating."""
+        guard = BudgetGuard(max_tokens=100)
+
+        with pytest.raises(BudgetExceededError):
+            guard.can_afford(500, 500, "model1")
+
+        # State unchanged
+        assert guard.total_input_tokens == 0
+
+    def test_commit_records_actual_usage(self):
+        """commit() records actual tokens after success."""
+        guard = BudgetGuard(max_tokens=10000)
+        guard.commit(150, 80, "model1")
+
+        assert guard.total_input_tokens == 150
+        assert guard.total_output_tokens == 80
+        assert len(guard.queries) == 1
+        assert guard.queries[0]["input_tokens"] == 150
+        assert guard.queries[0]["output_tokens"] == 80
+
+    def test_failed_query_does_not_consume_budget(self):
+        """If can_afford passes but query fails, no commit means no budget consumed."""
+        guard = BudgetGuard(max_tokens=5000)
+
+        # Preflight passes
+        guard.can_afford(1000, 2000, "model1")
+
+        # Simulate query failure — no commit called
+        # Budget should still be at 0
+        assert guard.total_input_tokens == 0
+        assert guard.total_output_tokens == 0
+
+        # A second query can still afford the full budget
+        guard.can_afford(2000, 2000, "model2")
+
+    def test_two_phase_flow(self):
+        """Full preflight + commit flow with actual tokens."""
+        guard = BudgetGuard(max_tokens=5000)
+
+        # Preflight with estimates
+        guard.can_afford(1000, 2000, "model1")
+
+        # Query succeeds with actual (smaller) usage
+        guard.commit(800, 1200, "model1")
+
+        assert guard.total_input_tokens == 800
+        assert guard.total_output_tokens == 1200
+
+        # Still have budget for another query
+        guard.can_afford(1000, 1000, "model2")
+        guard.commit(900, 900, "model2")
+
+        assert guard.total_input_tokens == 1700
+        assert guard.total_output_tokens == 2100

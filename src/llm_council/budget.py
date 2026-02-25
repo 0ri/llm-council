@@ -34,45 +34,36 @@ class BudgetGuard:
     total_cost_usd: float = field(default=0.0, init=False)
     queries: list[dict[str, Any]] = field(default_factory=list, init=False)
 
-    def check_and_update(
+    def can_afford(
         self,
         estimated_input_tokens: int,
         estimated_output_tokens: int,
         model_name: str,
     ) -> None:
-        """Check if query would exceed budget, update if within limits.
+        """Pre-flight check: would this query exceed the budget?
 
-        Args:
-            estimated_input_tokens: Estimated input tokens for the query
-            estimated_output_tokens: Estimated output tokens for the query
-            model_name: Name of the model being queried
+        Does NOT mutate state. Call ``commit()`` after a successful query.
 
         Raises:
-            BudgetExceededError: If the query would exceed budget limits
+            BudgetExceededError: If the query would exceed budget limits.
         """
-        # Calculate projected totals
         projected_input = self.total_input_tokens + estimated_input_tokens
         projected_output = self.total_output_tokens + estimated_output_tokens
-        projected_total_tokens = projected_input + projected_output
+        projected_total = projected_input + projected_output
 
-        # Calculate cost for this query
         query_cost = (
             estimated_input_tokens / 1000 * self.input_cost_per_1k
             + estimated_output_tokens / 1000 * self.output_cost_per_1k
         )
         projected_cost = self.total_cost_usd + query_cost
 
-        # Check token limit
-        if self.max_tokens is not None and projected_total_tokens > self.max_tokens:
-            logger.error(
-                f"Budget exceeded: {projected_total_tokens} tokens > {self.max_tokens} limit. Model: {model_name}"
-            )
+        if self.max_tokens is not None and projected_total > self.max_tokens:
+            logger.error(f"Budget exceeded: {projected_total} tokens > {self.max_tokens} limit. Model: {model_name}")
             raise BudgetExceededError(
-                f"Token budget exceeded: {projected_total_tokens} > {self.max_tokens} (limit). "
+                f"Token budget exceeded: {projected_total} > {self.max_tokens} (limit). "
                 f"Query would add {estimated_input_tokens + estimated_output_tokens} tokens."
             )
 
-        # Check cost limit
         if self.max_cost_usd is not None and projected_cost > self.max_cost_usd:
             logger.error(
                 f"Budget exceeded: ${projected_cost:.2f} > ${self.max_cost_usd:.2f} limit. Model: {model_name}"
@@ -82,26 +73,45 @@ class BudgetGuard:
                 f"Query would add ${query_cost:.2f}."
             )
 
-        # Update tracking
-        self.total_input_tokens = projected_input
-        self.total_output_tokens = projected_output
-        self.total_cost_usd = projected_cost
+        logger.debug(
+            f"Budget preflight OK for {model_name}: "
+            f"{projected_total}/{self.max_tokens or 'unlimited'} tokens, "
+            f"${projected_cost:.2f}/${self.max_cost_usd or 'unlimited'}"
+        )
 
-        # Log the query
+    def commit(
+        self,
+        input_tokens: int,
+        output_tokens: int,
+        model_name: str,
+    ) -> None:
+        """Record actual token usage after a successful query."""
+        query_cost = input_tokens / 1000 * self.input_cost_per_1k + output_tokens / 1000 * self.output_cost_per_1k
+
+        self.total_input_tokens += input_tokens
+        self.total_output_tokens += output_tokens
+        self.total_cost_usd += query_cost
+
         self.queries.append(
             {
                 "model": model_name,
-                "input_tokens": estimated_input_tokens,
-                "output_tokens": estimated_output_tokens,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
                 "cost_usd": query_cost,
             }
         )
 
-        logger.debug(
-            f"Budget check passed for {model_name}: "
-            f"{projected_total_tokens}/{self.max_tokens or 'unlimited'} tokens, "
-            f"${projected_cost:.2f}/${self.max_cost_usd or 'unlimited'}"
-        )
+        logger.debug(f"Budget committed for {model_name}: {input_tokens} in + {output_tokens} out, ${query_cost:.4f}")
+
+    def check_and_update(
+        self,
+        estimated_input_tokens: int,
+        estimated_output_tokens: int,
+        model_name: str,
+    ) -> None:
+        """Legacy: preflight + immediate commit (kept for backwards compat)."""
+        self.can_afford(estimated_input_tokens, estimated_output_tokens, model_name)
+        self.commit(estimated_input_tokens, estimated_output_tokens, model_name)
 
     def reset(self) -> None:
         """Reset all tracking counters."""

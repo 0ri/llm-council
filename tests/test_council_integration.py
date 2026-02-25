@@ -47,13 +47,14 @@ class TestRunCouncilIntegration:
             name = model_config.get("name", "unknown")
             if call_count["stage"] <= 3:
                 call_count["stage"] += 1
-                return mock_responses.get(name, "default response")
+                return mock_responses.get(name, "default response"), None
             elif call_count["stage"] <= 6:
                 call_count["stage"] += 1
-                return mock_rankings.get(name, '```json\n{"ranking": ["Response A", "Response B", "Response C"]}\n```')
+                default_ranking = '```json\n{"ranking": ["Response A", "Response B", "Response C"]}\n```'
+                return mock_rankings.get(name, default_ranking), None
             else:
                 call_count["stage"] += 1
-                return "The council has deliberated. Response A was ranked highest."
+                return "The council has deliberated. Response A was ranked highest.", None
 
         mock_provider = MagicMock()
         mock_provider.query = mock_query
@@ -79,8 +80,8 @@ class TestRunCouncilIntegration:
             if name == "Model-B":
                 raise Exception("Model B is down")
             if call_count["n"] <= 6:
-                return f"Response from {name}"
-            return '```json\n{"ranking": ["Response A", "Response C"]}\n```'
+                return f"Response from {name}", None
+            return '```json\n{"ranking": ["Response A", "Response C"]}\n```', None
 
         mock_provider = MagicMock()
         mock_provider.query = mock_query

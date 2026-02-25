@@ -108,10 +108,11 @@ def calculate_aggregate_rankings(
                 model_name = ranker_labels[label]
                 model_positions[model_name].append(position)
 
-    # Calculate the maximum number of candidates any ranker evaluated
+    # Calculate the maximum number of candidates any *valid* ranker evaluated
     max_candidates = 0
     for ranking in stage2_results:
-        max_candidates = max(max_candidates, len(ranking.parsed_ranking))
+        if ranking.is_valid_ballot:
+            max_candidates = max(max_candidates, len(ranking.parsed_ranking))
 
     # Calculate aggregate metrics for each model
     aggregate: list[AggregateRanking] = []

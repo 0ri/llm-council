@@ -65,15 +65,15 @@ async def query_model(
         logger.warning(f"Circuit breaker open for {cb_key}, skipping {model_name}")
         return None, None
 
-    # Budget check before querying
+    # Budget preflight (no mutation — only commit after success)
     if ctx.budget_guard is not None:
         input_text = " ".join(m.get("content", "") for m in messages)
         if system_message:
             input_text += " " + system_message
         estimated_input = estimate_tokens(input_text)
-        estimated_output = 2000  # conservative estimate
+        estimated_output = 2000  # conservative estimate for preflight
         try:
-            ctx.budget_guard.check_and_update(estimated_input, estimated_output, model_name)
+            ctx.budget_guard.can_afford(estimated_input, estimated_output, model_name)
         except BudgetExceededError:
             logger.warning(f"Budget exceeded, skipping {model_name}")
             return None, None
@@ -94,11 +94,15 @@ async def query_model(
         cb.record_success()
 
         # Extract token usage if available (tuple response from provider)
-        if isinstance(result, tuple):
-            content, token_usage = result
-            return {"content": content}, token_usage
-        else:
-            return {"content": result}, None
+        content, token_usage = result
+
+        # Commit actual usage to budget (only on success)
+        if ctx.budget_guard is not None:
+            actual_in = token_usage.get("input_tokens", estimated_input) if token_usage else estimated_input
+            actual_out = token_usage.get("output_tokens", estimated_output) if token_usage else estimated_output
+            ctx.budget_guard.commit(actual_in, actual_out, model_name)
+
+        return {"content": content}, token_usage
     except asyncio.TimeoutError:
         cb.record_failure()
         logger.warning(f"Timeout querying {model_name} after {MODEL_TIMEOUT}s")

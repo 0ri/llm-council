@@ -25,7 +25,7 @@ MAX_RETRIES = DEFAULT_MAX_RETRIES
 class Provider(typing.Protocol):
     """Protocol for LLM providers."""
 
-    async def query(self, prompt: str, model_config: dict, timeout: int) -> str: ...
+    async def query(self, prompt: str, model_config: dict, timeout: int) -> tuple[str, dict | None]: ...
 
 
 # ---------------------------------------------------------------------------

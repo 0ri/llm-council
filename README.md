@@ -196,14 +196,14 @@ llm-council --flatten ./src "Review this code for bugs"
 
 ### Model Rankings (by peer review)
 
-| Rank | Model | Avg Position |
-|------|-------|--------------|
-| 1 | Claude Opus 4.6 | 1.5 |
-| 2 | GPT-5.3-Codex | 2.0 |
-| 3 | Gemini-3.1-Pro | 2.8 |
-| 4 | Grok-4 | 3.7 |
+| Rank | Model | Avg Position | 95% CI | Borda Score |
+|------|-------|--------------|--------|-------------|
+| 1 | Claude Opus 4.6 | 1.33 | [1.0, 1.67] | 2.67 |
+| 2 | GPT-5.3-Codex | 2.0 | [1.33, 2.67] | 2.0 |
+| 3 | Gemini-3.1-Pro | 2.67 | [2.0, 3.33] | 1.33 |
+| 4 | Grok-4 | 3.67 | [3.33, 4.0] | 0.33 |
 
-*Rankings determined by anonymous peer evaluation*
+*Rankings based on 3/3 valid ballots (anonymous peer evaluation)*
 
 ---
 
