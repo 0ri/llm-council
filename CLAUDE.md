@@ -160,7 +160,7 @@ Any model in your AWS Bedrock region (Anthropic, Meta, Mistral, Cohere, etc.). E
 ### Poe.com
 Any bot on Poe's API (hundreds of models including open-source). Examples:
 - `GPT-5.3-Codex`, `GPT-5.2` - supports web_search, reasoning_effort
-- `Gemini-3.1-Pro`, `Gemini-3-Flash` - supports web_search, thinking_level
+- `Gemini-3.1-Pro`, `Gemini-3-Flash` - supports web_search, reasoning_effort
 - `Grok-4`
 
 ### OpenRouter

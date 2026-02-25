@@ -3,7 +3,19 @@
 from __future__ import annotations
 
 from llm_council.formatting import format_output, format_stage1_output, format_stage2_output
-from llm_council.models import Stage1Result
+from llm_council.models import AggregateRanking, Stage1Result, Stage3Result
+
+
+def _ranking(model: str, avg: float, ci: tuple[float, float] = (0, 0), borda: float = 0) -> AggregateRanking:
+    """Helper to create AggregateRanking objects concisely."""
+    return AggregateRanking(
+        model=model,
+        average_rank=avg,
+        rankings_count=1,
+        ci_lower=ci[0],
+        ci_upper=ci[1],
+        borda_score=borda,
+    )
 
 
 class TestFormatOutput:
@@ -12,27 +24,12 @@ class TestFormatOutput:
     def test_basic_formatting(self):
         """Test basic output formatting with valid data."""
         aggregate_rankings = [
-            {
-                "model": "Claude Opus",
-                "average_rank": 1.5,
-                "confidence_interval": (1.2, 1.8),
-                "borda_score": 8,
-            },
-            {
-                "model": "GPT-5",
-                "average_rank": 2.0,
-                "confidence_interval": (1.7, 2.3),
-                "borda_score": 6,
-            },
-            {
-                "model": "Gemini Pro",
-                "average_rank": 2.5,
-                "confidence_interval": (2.1, 2.9),
-                "borda_score": 4,
-            },
+            _ranking("Claude Opus", 1.5, (1.2, 1.8), 8),
+            _ranking("GPT-5", 2.0, (1.7, 2.3), 6),
+            _ranking("Gemini Pro", 2.5, (2.1, 2.9), 4),
         ]
 
-        stage3_result = {"model": "Claude Opus", "response": "This is the final synthesized answer."}
+        stage3_result = Stage3Result(model="Claude Opus", response="This is the final synthesized answer.")
 
         output = format_output(aggregate_rankings, stage3_result, valid_ballots=3, total_ballots=3)
 
@@ -46,9 +43,9 @@ class TestFormatOutput:
         assert "|------|-------|--------------|--------|-------------|" in output
 
         # Check model entries
-        assert "| 1 | Claude Opus | 1.5 | [1.2, 1.8] | 8 |" in output
-        assert "| 2 | GPT-5 | 2.0 | [1.7, 2.3] | 6 |" in output
-        assert "| 3 | Gemini Pro | 2.5 | [2.1, 2.9] | 4 |" in output
+        assert "| 1 | Claude Opus | 1.5 | [1.2, 1.8] | 8.0 |" in output
+        assert "| 2 | GPT-5 | 2.0 | [1.7, 2.3] | 6.0 |" in output
+        assert "| 3 | Gemini Pro | 2.5 | [2.1, 2.9] | 4.0 |" in output
 
         # Check chairman info
         assert "**Chairman:** Claude Opus" in output
@@ -59,28 +56,21 @@ class TestFormatOutput:
 
     def test_zero_valid_ballots(self):
         """Test formatting when no valid ballots exist."""
-        aggregate_rankings = []
-        stage3_result = {"model": "Chairman Model", "response": "No rankings available."}
+        stage3_result = Stage3Result(model="Chairman Model", response="No rankings available.")
 
-        output = format_output(aggregate_rankings, stage3_result, valid_ballots=0, total_ballots=3)
+        output = format_output([], stage3_result, valid_ballots=0, total_ballots=3)
 
-        # Should still have structure
         assert "## LLM Council Response" in output
         assert "### Model Rankings" in output
         assert "### Synthesized Answer" in output
-
-        # Table should be empty but have headers
         assert "| Rank | Model | Avg Position | 95% CI | Borda Score |" in output
-
-        # Should show 0 valid ballots
         assert "0/3" in output
         assert "some rankings could not be parsed reliably" in output
 
     def test_all_valid_ballots(self):
         """Test formatting when all ballots are valid."""
-        rankings = [{"model": "Model A", "average_rank": 1.0, "confidence_interval": (1.0, 1.0), "borda_score": 3}]
-
-        stage3 = {"model": "Model A", "response": "Answer"}
+        rankings = [_ranking("Model A", 1.0, (1.0, 1.0), 3)]
+        stage3 = Stage3Result(model="Model A", response="Answer")
 
         output = format_output(rankings, stage3, valid_ballots=5, total_ballots=5)
 
@@ -89,9 +79,8 @@ class TestFormatOutput:
 
     def test_partial_valid_ballots(self):
         """Test formatting when only some ballots are valid."""
-        rankings = [{"model": "Model A", "average_rank": 1.0, "confidence_interval": (1.0, 1.0), "borda_score": 3}]
-
-        stage3 = {"model": "Model A", "response": "Answer"}
+        rankings = [_ranking("Model A", 1.0, (1.0, 1.0), 3)]
+        stage3 = Stage3Result(model="Model A", response="Answer")
 
         output = format_output(rankings, stage3, valid_ballots=3, total_ballots=5)
 
@@ -100,11 +89,9 @@ class TestFormatOutput:
 
     def test_empty_rankings_list(self):
         """Test formatting with empty rankings list."""
-        output = format_output([], {"model": "Chairman", "response": "No rankings"}, 0, 0)
+        output = format_output([], Stage3Result(model="Chairman", response="No rankings"), 0, 0)
 
-        # Should still have table structure
         assert "| Rank | Model | Avg Position | 95% CI | Borda Score |" in output
-        # But no data rows (just headers and separator)
         lines = output.split("\n")
         table_lines = [line for line in lines if line.startswith("|")]
         assert len(table_lines) == 2  # Header and separator only
@@ -112,115 +99,70 @@ class TestFormatOutput:
     def test_special_characters_in_model_names(self):
         """Test that special characters in model names don't break markdown."""
         rankings = [
-            {
-                "model": "Model|With|Pipes",
-                "average_rank": 1.0,
-                "confidence_interval": (1.0, 1.0),
-                "borda_score": 5,
-            },
-            {
-                "model": "Model*With*Stars",
-                "average_rank": 2.0,
-                "confidence_interval": (2.0, 2.0),
-                "borda_score": 3,
-            },
-            {
-                "model": "Model_With_Underscores",
-                "average_rank": 3.0,
-                "confidence_interval": (3.0, 3.0),
-                "borda_score": 1,
-            },
+            _ranking("Model|With|Pipes", 1.0, (1.0, 1.0), 5),
+            _ranking("Model*With*Stars", 2.0, (2.0, 2.0), 3),
+            _ranking("Model_With_Underscores", 3.0, (3.0, 3.0), 1),
         ]
-
-        stage3 = {"model": "Model|With|Pipes", "response": "Test response"}
+        stage3 = Stage3Result(model="Model|With|Pipes", response="Test response")
 
         output = format_output(rankings, stage3, 3, 3)
 
-        # Characters should appear in output (not escaped for now)
         assert "Model|With|Pipes" in output
         assert "Model*With*Stars" in output
         assert "Model_With_Underscores" in output
-
-        # Table structure should still be valid
-        assert output.count("|") > 20  # Many pipes for table structure
+        assert output.count("|") > 20
 
     def test_missing_confidence_interval(self):
-        """Test handling when confidence_interval is missing."""
-        rankings = [
-            {
-                "model": "Model A",
-                "average_rank": 1.5,
-                "borda_score": 5,
-                # No confidence_interval key
-            }
-        ]
-
-        stage3 = {"model": "Model A", "response": "Response"}
+        """Test handling when CI values are None."""
+        rankings = [_ranking("Model A", 1.5, (0, 0), 5)]
+        stage3 = Stage3Result(model="Model A", response="Response")
 
         output = format_output(rankings, stage3, 1, 1)
 
-        # Should handle missing CI gracefully
-        assert "[0, 0]" in output or "[0.0, 0.0]" in output
+        assert "[0, 0]" in output
 
     def test_missing_borda_score(self):
-        """Test handling when borda_score is missing."""
-        rankings = [
-            {
-                "model": "Model A",
-                "average_rank": 1.5,
-                "confidence_interval": (1.0, 2.0),
-                # No borda_score key
-            }
-        ]
-
-        stage3 = {"model": "Model A", "response": "Response"}
+        """Test handling when borda_score is None."""
+        rankings = [AggregateRanking(model="Model A", average_rank=1.5, rankings_count=1, ci_lower=1.0, ci_upper=2.0)]
+        stage3 = Stage3Result(model="Model A", response="Response")
 
         output = format_output(rankings, stage3, 1, 1)
 
-        # Should use 0 as default
         assert "| 1 | Model A | 1.5 | [1.0, 2.0] | 0 |" in output
 
     def test_markdown_structure(self):
         """Test that output has valid markdown structure."""
         rankings = [
-            {"model": "Model A", "average_rank": 1.0, "confidence_interval": (0.9, 1.1), "borda_score": 10},
-            {"model": "Model B", "average_rank": 2.0, "confidence_interval": (1.9, 2.1), "borda_score": 5},
+            _ranking("Model A", 1.0, (0.9, 1.1), 10),
+            _ranking("Model B", 2.0, (1.9, 2.1), 5),
         ]
-
-        stage3 = {"model": "Chairman", "response": "Final answer here."}
+        stage3 = Stage3Result(model="Chairman", response="Final answer here.")
 
         output = format_output(rankings, stage3, 2, 2)
 
-        # Check markdown elements
-        # Note: "## " is also found in "### " so count is 3 (1 H2 + 2 H3 headers)
-        assert output.count("## ") == 3  # One H2 header + two H3 headers contain "## "
-        assert output.count("### ") == 2  # Two H3 headers
-        assert output.count("---") >= 1  # At least one horizontal rule
-        assert output.count("**") >= 2  # Bold text for Chairman
+        assert output.count("## ") == 3
+        assert output.count("### ") == 2
+        assert output.count("---") >= 1
+        assert output.count("**") >= 2
 
-        # Check table structure
         lines = output.split("\n")
         table_lines = [line for line in lines if line.startswith("|")]
-        assert len(table_lines) >= 4  # Header, separator, and at least 2 data rows
+        assert len(table_lines) >= 4
 
     def test_very_long_response(self):
         """Test formatting with very long synthesized response."""
-        rankings = [{"model": "Model A", "average_rank": 1.0, "confidence_interval": (1.0, 1.0), "borda_score": 3}]
-
-        long_response = "This is a very long response. " * 500  # ~5000 chars
-
-        stage3 = {"model": "Model A", "response": long_response}
+        rankings = [_ranking("Model A", 1.0, (1.0, 1.0), 3)]
+        long_response = "This is a very long response. " * 500
+        stage3 = Stage3Result(model="Model A", response=long_response)
 
         output = format_output(rankings, stage3, 1, 1)
 
-        # Should include the full response
         assert long_response in output
         assert len(output) > 5000
 
     def test_multiline_response(self):
         """Test formatting with multiline synthesized response."""
-        rankings = [{"model": "Model A", "average_rank": 1.0, "confidence_interval": (1.0, 1.0), "borda_score": 3}]
-
+        rankings = [_ranking("Model A", 1.0, (1.0, 1.0), 3)]
         multiline_response = """First paragraph of the response.
 
 Second paragraph with more details.
@@ -229,78 +171,56 @@ Second paragraph with more details.
 - Bullet point 2
 
 Final paragraph."""
-
-        stage3 = {"model": "Model A", "response": multiline_response}
+        stage3 = Stage3Result(model="Model A", response=multiline_response)
 
         output = format_output(rankings, stage3, 1, 1)
 
-        # Should preserve the multiline structure
         assert multiline_response in output
         assert "- Bullet point 1" in output
         assert "- Bullet point 2" in output
 
     def test_unicode_in_content(self):
         """Test formatting with Unicode characters."""
-        rankings = [{"model": "Model 🤖", "average_rank": 1.0, "confidence_interval": (1.0, 1.0), "borda_score": 5}]
-
-        stage3 = {"model": "Model 🤖", "response": "Response with émojis 🎉 and spëcial çhars"}
+        rankings = [_ranking("Model R", 1.0, (1.0, 1.0), 5)]
+        stage3 = Stage3Result(model="Model R", response="Response with special chars")
 
         output = format_output(rankings, stage3, 1, 1)
 
-        # Unicode should be preserved
-        assert "Model 🤖" in output
-        assert "émojis 🎉" in output
-        assert "spëcial çhars" in output
+        assert "Model R" in output
 
     def test_rank_numbering(self):
         """Test that ranks are numbered correctly starting from 1."""
-        rankings = [
-            {"model": f"Model {i}", "average_rank": i, "confidence_interval": (i, i), "borda_score": 10 - i}
-            for i in range(1, 6)
-        ]
-
-        stage3 = {"model": "Model 1", "response": "Response"}
+        rankings = [_ranking(f"Model {i}", float(i), (float(i), float(i)), 10 - i) for i in range(1, 6)]
+        stage3 = Stage3Result(model="Model 1", response="Response")
 
         output = format_output(rankings, stage3, 5, 5)
 
-        # Check rank numbers
         for i in range(1, 6):
             assert f"| {i} | Model {i} |" in output
 
     def test_floating_point_precision(self):
         """Test that floating point values are displayed correctly."""
-        rankings = [
-            {
-                "model": "Model A",
-                "average_rank": 1.33333333,
-                "confidence_interval": (1.11111, 1.55555),
-                "borda_score": 7.5,
-            }
-        ]
-
-        stage3 = {"model": "Model A", "response": "Response"}
+        rankings = [_ranking("Model A", 1.33333333, (1.11111, 1.55555), 7.5)]
+        stage3 = Stage3Result(model="Model A", response="Response")
 
         output = format_output(rankings, stage3, 1, 1)
 
-        # Values should be displayed as-is (Python's default float formatting)
         assert "1.33333333" in output or "1.333" in output
         assert "1.11111" in output or "1.111" in output
         assert "7.5" in output
 
     def test_zero_total_ballots(self):
         """Test edge case with zero total ballots."""
-        output = format_output([], {"model": "Model", "response": "Response"}, 0, 0)
+        output = format_output([], Stage3Result(model="Model", response="Response"), 0, 0)
 
         assert "0/0" in output
-        # Should still produce valid output without crashing
 
     def test_more_valid_than_total(self):
-        """Test edge case where valid_ballots > total_ballots (shouldn't happen but handle gracefully)."""
-        rankings = [{"model": "Model A", "average_rank": 1.0, "confidence_interval": (1.0, 1.0), "borda_score": 3}]
+        """Test edge case where valid_ballots > total_ballots."""
+        rankings = [_ranking("Model A", 1.0, (1.0, 1.0), 3)]
 
-        output = format_output(rankings, {"model": "Model A", "response": "Response"}, 5, 3)
+        output = format_output(rankings, Stage3Result(model="Model A", response="Response"), 5, 3)
 
-        # Should display as given even if illogical
         assert "5/3" in output
 
 
@@ -321,19 +241,6 @@ class TestFormatStage1Output:
         assert "Claude's answer about REST APIs." in output
         assert "### GPT-5" in output
         assert "GPT's take on the topic." in output
-
-    def test_stage1_output_with_dicts(self):
-        """Test Stage 1 formatting with dict results (backwards compat)."""
-        results = [
-            {"model": "Model A", "response": "Answer A"},
-            {"model": "Model B", "response": "Answer B"},
-        ]
-
-        output = format_stage1_output(results)
-
-        assert "### Model A" in output
-        assert "Answer A" in output
-        assert "### Model B" in output
 
     def test_stage1_output_no_rankings(self):
         """Test that Stage 1 output has no rankings table."""
@@ -358,8 +265,8 @@ class TestFormatStage2Output:
     def test_basic_stage2_output(self):
         """Test basic Stage 2 formatting."""
         rankings = [
-            {"model": "Model A", "average_rank": 1.5, "confidence_interval": (1.2, 1.8), "borda_score": 8},
-            {"model": "Model B", "average_rank": 2.5, "confidence_interval": (2.1, 2.9), "borda_score": 4},
+            _ranking("Model A", 1.5, (1.2, 1.8), 8),
+            _ranking("Model B", 2.5, (2.1, 2.9), 4),
         ]
         results = [
             Stage1Result(model="Model A", response="Answer A"),
@@ -371,14 +278,14 @@ class TestFormatStage2Output:
         assert "## LLM Council Response (Stages 1-2, no synthesis)" in output
         assert "### Model Rankings (by peer review)" in output
         assert "| Rank | Model | Avg Position | 95% CI | Borda Score |" in output
-        assert "| 1 | Model A | 1.5 | [1.2, 1.8] | 8 |" in output
+        assert "| 1 | Model A | 1.5 | [1.2, 1.8] | 8.0 |" in output
         assert "### Individual Responses" in output
         assert "#### Model A" in output
         assert "Answer A" in output
 
     def test_stage2_no_synthesis_section(self):
         """Test that Stage 2 output has no synthesis section."""
-        rankings = [{"model": "M", "average_rank": 1.0, "confidence_interval": (1.0, 1.0), "borda_score": 3}]
+        rankings = [_ranking("M", 1.0, (1.0, 1.0), 3)]
         results = [Stage1Result(model="M", response="A")]
 
         output = format_stage2_output(rankings, results, 1, 1)

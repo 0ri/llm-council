@@ -67,10 +67,12 @@ def sample_config():
 @pytest.fixture
 def sample_stage1_results():
     """Sample Stage 1 results for testing."""
+    from llm_council.models import Stage1Result
+
     return [
-        {"model": "Model-A", "response": "Response from model A about the topic."},
-        {"model": "Model-B", "response": "Response from model B with different perspective."},
-        {"model": "Model-C", "response": "Response from model C with yet another view."},
+        Stage1Result(model="Model-A", response="Response from model A about the topic."),
+        Stage1Result(model="Model-B", response="Response from model B with different perspective."),
+        Stage1Result(model="Model-C", response="Response from model C with yet another view."),
     ]
 
 

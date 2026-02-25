@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -79,22 +79,8 @@ class AggregateRanking(BaseModel):
 
     @property
     def confidence_interval(self) -> tuple[float, float]:
-        """Get confidence interval as tuple for backwards compatibility."""
+        """Get confidence interval as a tuple."""
         return (self.ci_lower or 0, self.ci_upper or 0)
-
-    def __contains__(self, key: str) -> bool:
-        """Support 'in' operator for backwards compatibility with dict checks."""
-        if key == "confidence_interval":
-            return True
-        return key in self.__dict__ or key in self.model_fields
-
-    def __getitem__(self, key: str) -> Any:
-        """Support dict-style access for backwards compatibility."""
-        if key == "confidence_interval":
-            return self.confidence_interval
-        if key == "borda_score":
-            return self.borda_score
-        return getattr(self, key)
 
 
 class Stage3Result(BaseModel):

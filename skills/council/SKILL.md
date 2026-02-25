@@ -47,7 +47,7 @@ The output will include:
 
    **Poe.com** (any bot on Poe — requires POE_API_KEY):
    - GPT-5.3-Codex, GPT-5.2 - supports web_search, reasoning_effort (medium/high/Xhigh)
-   - Gemini-3.1-Pro, Gemini-3-Pro - supports web_search, thinking_level (minimal/low/high)
+   - Gemini-3.1-Pro, Gemini-3-Pro - supports web_search, reasoning_effort (minimal/low/high; mapped to thinking_level internally)
    - Grok-4
    - Plus hundreds of other models and community bots
 
@@ -56,7 +56,7 @@ The output will include:
 4. **Ask about enhanced parameters** for selected models:
    - For Claude models: budget_tokens (e.g., 10000 for extended thinking)
    - For GPT models: web_search (true/false), reasoning_effort (medium/high/Xhigh)
-   - For Gemini models: web_search (true/false), thinking_level (minimal/low/high)
+   - For Gemini models: web_search (true/false), reasoning_effort (minimal/low/high; sent as thinking_level)
 
 5. **Save the configuration** to `{baseDir}/config/council-config.json` with this format:
 
@@ -81,7 +81,7 @@ The output will include:
       "provider": "poe",
       "bot_name": "Gemini-3.1-Pro",
       "web_search": true,
-      "thinking_level": "high"
+      "reasoning_effort": "high"
     },
     {"name": "Grok-4", "provider": "poe", "bot_name": "Grok-4"}
   ],
@@ -129,8 +129,7 @@ The council returns a markdown summary with:
 |----------|-----------|-------------|
 | Bedrock | `budget_tokens` | Extended thinking token budget (e.g., 10000) |
 | Poe | `web_search` | Enable web search (true/false) |
-| Poe | `reasoning_effort` | GPT models: "medium"/"high"/"Xhigh" |
-| Poe | `thinking_level` | Gemini models: "minimal"/"low"/"high" |
+| Poe | `reasoning_effort` | GPT: "medium"/"high"/"Xhigh", Gemini: "minimal"/"low"/"high" |
 
 ## Requirements
 

@@ -12,7 +12,7 @@ from typing import Any
 from .budget import BudgetExceededError
 from .context import CouncilContext
 from .cost import estimate_tokens
-from .models import Stage1Result, Stage2Result, Stage3Result
+from .models import AggregateRanking, Stage1Result, Stage2Result, Stage3Result
 from .parsing import parse_ranking_from_text
 from .progress import ModelStatus
 from .prompts import (
@@ -325,7 +325,7 @@ async def _get_ranking(
 
 async def stage2_collect_rankings(
     user_query: str,
-    stage1_results: list[Stage1Result] | list[dict[str, Any]],
+    stage1_results: list[Stage1Result],
     council_models: list[dict[str, Any]],
     ctx: CouncilContext,
     stage2_max_retries: int | None = None,
@@ -338,7 +338,7 @@ async def stage2_collect_rankings(
 
     Args:
         user_query: The user's question
-        stage1_results: List of Stage1 results (can be Stage1Result or dict for backwards compatibility)
+        stage1_results: List of Stage1Result objects
         council_models: List of council model configs
         ctx: CouncilContext providing providers, circuit breakers, semaphore, progress
         stage2_max_retries: Maximum retries for invalid ballots (default: ctx.stage2_max_retries)
@@ -361,12 +361,7 @@ async def stage2_collect_rankings(
     system_message = RANKING_SYSTEM_MESSAGE_TEMPLATE.format(manipulation_resistance_msg=base_resistance_msg)
 
     # Build responses tuples for prompt construction
-    response_tuples = []
-    for result in stage1_results:
-        if isinstance(result, Stage1Result):
-            response_tuples.append((result.model, result.response))
-        else:
-            response_tuples.append((result["model"], result["response"]))
+    response_tuples = [(result.model, result.response) for result in stage1_results]
 
     # Store per-ranker label mappings for proper aggregation
     per_ranker_label_mappings: dict[str, dict[str, str]] = {}
@@ -384,9 +379,7 @@ async def stage2_collect_rankings(
         filtered_indices = []
         filtered_responses = []
         for i, result in enumerate(stage1_results):
-            # Handle both Stage1Result and dict
-            model_name = result.model if isinstance(result, Stage1Result) else result["model"]
-            if model_name != ranker_name:
+            if result.model != ranker_name:
                 filtered_indices.append(i)
                 filtered_responses.append(response_tuples[i])
 
@@ -405,10 +398,8 @@ async def stage2_collect_rankings(
         label_to_model = {}
         for label_idx, order_idx in enumerate(response_order):
             original_idx = filtered_indices[order_idx]
-            # Handle both Stage1Result and dict
             result = stage1_results[original_idx]
-            model_name = result.model if isinstance(result, Stage1Result) else result["model"]
-            label_to_model[f"Response {labels[label_idx]}"] = model_name
+            label_to_model[f"Response {labels[label_idx]}"] = result.model
 
         per_ranker_label_mappings[ranker_name] = label_to_model
 
@@ -519,7 +510,7 @@ def build_synthesis_prompt(
     responses: list[tuple[str, str]],
     rankings: dict[str, str],
     labels: list[str],
-    aggregate_rankings: list[dict[str, Any]],
+    aggregate_rankings: list[AggregateRanking],
 ) -> str:
     """Construct the chairman synthesis prompt with anonymized context.
 
@@ -528,7 +519,7 @@ def build_synthesis_prompt(
         responses: List of (model_name, response_text) tuples
         rankings: Mapping of labels to model names
         labels: List of response labels
-        aggregate_rankings: Sorted aggregate ranking data
+        aggregate_rankings: Sorted AggregateRanking objects
 
     Returns:
         The formatted synthesis prompt
@@ -545,9 +536,8 @@ def build_synthesis_prompt(
     # Summarize rankings anonymously (which responses were ranked highest)
     ranking_summary_lines = []
     for rank_info in aggregate_rankings:
-        model = rank_info["model"]
-        label = model_to_label.get(model, "Unknown")
-        ranking_summary_lines.append(f"- {label}: Average position {rank_info['average_rank']}")
+        label = model_to_label.get(rank_info.model, "Unknown")
+        ranking_summary_lines.append(f"- {label}: Average position {rank_info.average_rank}")
     ranking_summary = "\n".join(ranking_summary_lines)
 
     chairman_prompt = SYNTHESIS_PROMPT_TEMPLATE.format(
@@ -561,10 +551,10 @@ def build_synthesis_prompt(
 
 async def stage3_synthesize_final(
     user_query: str,
-    stage1_results: list[Stage1Result] | list[dict[str, Any]],
-    stage2_results: list[Stage2Result] | list[dict[str, Any]],
+    stage1_results: list[Stage1Result],
+    stage2_results: list[Stage2Result],
     label_to_model: dict[str, str],
-    aggregate_rankings: list[dict[str, Any]],
+    aggregate_rankings: list[AggregateRanking],
     chairman_config: dict[str, Any],
     ctx: CouncilContext,
 ) -> tuple[Stage3Result, dict[str, Any] | None]:
@@ -574,10 +564,10 @@ async def stage3_synthesize_final(
 
     Args:
         user_query: The user's question
-        stage1_results: List of Stage1 results (can be Stage1Result or dict for backwards compatibility)
-        stage2_results: List of Stage2 results (can be Stage2Result or dict for backwards compatibility)
+        stage1_results: List of Stage1Result objects
+        stage2_results: List of Stage2Result objects
         label_to_model: Label to model mapping
-        aggregate_rankings: Aggregate rankings
+        aggregate_rankings: List of AggregateRanking objects
         chairman_config: Chairman model config
         ctx: CouncilContext providing providers, circuit breakers, semaphore, progress
 
@@ -592,12 +582,7 @@ async def stage3_synthesize_final(
         await progress.update_model(chairman_name, ModelStatus.QUERYING)
 
     # Build responses tuples and labels for prompt construction
-    response_tuples = []
-    for result in stage1_results:
-        if isinstance(result, Stage1Result):
-            response_tuples.append((result.model, result.response))
-        else:
-            response_tuples.append((result["model"], result["response"]))
+    response_tuples = [(result.model, result.response) for result in stage1_results]
     labels = [f"Response {chr(65 + i)}" for i in range(len(stage1_results))]
 
     # Build the synthesis prompt

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import random
 from collections import defaultdict
-from typing import Any
 
 from .models import AggregateRanking, Stage2Result
 
@@ -80,14 +79,14 @@ def calculate_borda_score(positions: list[int], n_candidates: int) -> float:
 
 
 def calculate_aggregate_rankings(
-    stage2_results: list[Stage2Result] | list[dict[str, Any]],
-    label_mappings: dict[str, str] | dict[str, dict[str, str]],
+    stage2_results: list[Stage2Result],
+    label_mappings: dict[str, dict[str, str]],
 ) -> tuple[list[AggregateRanking], int, int]:
     """Calculate aggregate rankings across all models.
 
     Args:
-        stage2_results: List of ranking results from stage2 (can be Stage2Result or dict for backwards compatibility)
-        label_mappings: Either a simple dict (old format) or per-ranker mappings (new format)
+        stage2_results: List of Stage2Result ranking results
+        label_mappings: Per-ranker mappings: {ranker_name: {label: model_name}}
 
     Returns:
         Tuple of (aggregate rankings list, valid ballot count, total ballot count)
@@ -96,50 +95,23 @@ def calculate_aggregate_rankings(
     valid_ballots = 0
     total_ballots = len(stage2_results)
 
-    # Determine if we have per-ranker mappings or a single mapping
-    per_ranker_mappings = isinstance(label_mappings, dict) and any(isinstance(v, dict) for v in label_mappings.values())
-
-    # Collect all unique models that received rankings
-    all_models = set()
-
     for ranking in stage2_results:
-        # Handle both Stage2Result and dict for backwards compatibility
-        if isinstance(ranking, Stage2Result):
-            ranker_name = ranking.model
-            parsed_ranking = ranking.parsed_ranking
-            is_valid = ranking.is_valid_ballot
-        else:
-            ranker_name = ranking.get("model", "unknown")
-            parsed_ranking = ranking.get("parsed_ranking", [])
-            is_valid = ranking.get("is_valid_ballot", False)
-
-        if not is_valid:
+        if not ranking.is_valid_ballot:
             continue
 
         valid_ballots += 1
 
-        # Get the appropriate label mapping for this ranker
-        if per_ranker_mappings:
-            # New format: per-ranker mappings
-            ranker_labels = label_mappings.get(ranker_name, {})
-        else:
-            # Old format: single mapping for all rankers
-            ranker_labels = label_mappings
+        ranker_labels = label_mappings.get(ranking.model, {})
 
-        for position, label in enumerate(parsed_ranking, start=1):
+        for position, label in enumerate(ranking.parsed_ranking, start=1):
             if label in ranker_labels:
                 model_name = ranker_labels[label]
                 model_positions[model_name].append(position)
-                all_models.add(model_name)
 
     # Calculate the maximum number of candidates any ranker evaluated
-    # (accounting for self-exclusion, different rankers may see different counts)
     max_candidates = 0
     for ranking in stage2_results:
-        if isinstance(ranking, Stage2Result):
-            max_candidates = max(max_candidates, len(ranking.parsed_ranking))
-        else:
-            max_candidates = max(max_candidates, len(ranking.get("parsed_ranking", [])))
+        max_candidates = max(max_candidates, len(ranking.parsed_ranking))
 
     # Calculate aggregate metrics for each model
     aggregate: list[AggregateRanking] = []

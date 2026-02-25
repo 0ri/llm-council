@@ -6,12 +6,9 @@ import pytest
 
 from llm_council.context import CouncilContext
 from llm_council.cost import CouncilCostTracker
+from llm_council.models import Stage1Result
 from llm_council.progress import ProgressManager
-
-try:
-    from llm_council.stages import build_ranking_prompt, stage2_collect_rankings
-except ImportError:
-    from council import build_ranking_prompt, stage2_collect_rankings
+from llm_council.stages import build_ranking_prompt, stage2_collect_rankings
 
 
 def _make_ctx() -> CouncilContext:
@@ -99,9 +96,9 @@ class TestStage2CollectRankings:
         """Test that models don't rank their own responses."""
         user_query = "What is AI?"
         stage1_results = [
-            {"model": "Model1", "response": "AI is artificial intelligence"},
-            {"model": "Model2", "response": "AI stands for artificial intelligence"},
-            {"model": "Model3", "response": "Artificial Intelligence"},
+            Stage1Result(model="Model1", response="AI is artificial intelligence"),
+            Stage1Result(model="Model2", response="AI stands for artificial intelligence"),
+            Stage1Result(model="Model3", response="Artificial Intelligence"),
         ]
         council_models = [
             {"name": "Model1", "provider": "bedrock", "model_id": "test1"},
@@ -157,10 +154,10 @@ class TestStage2CollectRankings:
         """Test that each ranker can see responses in different orders."""
         user_query = "Test question"
         stage1_results = [
-            {"model": "M1", "response": "Answer 1"},
-            {"model": "M2", "response": "Answer 2"},
-            {"model": "M3", "response": "Answer 3"},
-            {"model": "M4", "response": "Answer 4"},
+            Stage1Result(model="M1", response="Answer 1"),
+            Stage1Result(model="M2", response="Answer 2"),
+            Stage1Result(model="M3", response="Answer 3"),
+            Stage1Result(model="M4", response="Answer 4"),
         ]
         council_models = [
             {"name": "M1", "provider": "bedrock", "model_id": "test1"},
@@ -212,8 +209,8 @@ class TestStage2CollectRankings:
         """Test that rankings can have different lengths due to self-exclusion."""
         user_query = "Question"
         stage1_results = [
-            {"model": "M1", "response": "R1"},
-            {"model": "M2", "response": "R2"},
+            Stage1Result(model="M1", response="R1"),
+            Stage1Result(model="M2", response="R2"),
         ]
         council_models = [
             {"name": "M1", "provider": "bedrock", "model_id": "test1"},
@@ -251,7 +248,7 @@ class TestStage2CollectRankings:
         """Test behavior when a model is the only one that responded."""
         user_query = "Question"
         stage1_results = [
-            {"model": "M1", "response": "Only response"},
+            Stage1Result(model="M1", response="Only response"),
         ]
         council_models = [
             {"name": "M1", "provider": "bedrock", "model_id": "test1"},
@@ -279,9 +276,9 @@ class TestStage2QualityGate:
         """Invalid ballot on first call should be retried and succeed on second call."""
         user_query = "What is AI?"
         stage1_results = [
-            {"model": "Model1", "response": "AI is artificial intelligence"},
-            {"model": "Model2", "response": "AI stands for artificial intelligence"},
-            {"model": "Model3", "response": "Artificial Intelligence"},
+            Stage1Result(model="Model1", response="AI is artificial intelligence"),
+            Stage1Result(model="Model2", response="AI stands for artificial intelligence"),
+            Stage1Result(model="Model3", response="Artificial Intelligence"),
         ]
         council_models = [
             {"name": "Model1", "provider": "bedrock", "model_id": "test1"},
@@ -320,9 +317,9 @@ class TestStage2QualityGate:
         """No extra calls should be made when all ballots are valid on first try."""
         user_query = "What is AI?"
         stage1_results = [
-            {"model": "Model1", "response": "AI is artificial intelligence"},
-            {"model": "Model2", "response": "AI stands for artificial intelligence"},
-            {"model": "Model3", "response": "Artificial Intelligence"},
+            Stage1Result(model="Model1", response="AI is artificial intelligence"),
+            Stage1Result(model="Model2", response="AI stands for artificial intelligence"),
+            Stage1Result(model="Model3", response="Artificial Intelligence"),
         ]
         council_models = [
             {"name": "Model1", "provider": "bedrock", "model_id": "test1"},
@@ -358,9 +355,9 @@ class TestStage2QualityGate:
         """After max retries, an always-failing model should keep is_valid_ballot=False."""
         user_query = "What is AI?"
         stage1_results = [
-            {"model": "Model1", "response": "AI is artificial intelligence"},
-            {"model": "Model2", "response": "AI stands for artificial intelligence"},
-            {"model": "Model3", "response": "Artificial Intelligence"},
+            Stage1Result(model="Model1", response="AI is artificial intelligence"),
+            Stage1Result(model="Model2", response="AI stands for artificial intelligence"),
+            Stage1Result(model="Model3", response="Artificial Intelligence"),
         ]
         council_models = [
             {"name": "Model1", "provider": "bedrock", "model_id": "test1"},
@@ -400,9 +397,9 @@ class TestStage2QualityGate:
         """When stage2_max_retries=0, no retries should happen even with invalid ballots."""
         user_query = "What is AI?"
         stage1_results = [
-            {"model": "Model1", "response": "AI is artificial intelligence"},
-            {"model": "Model2", "response": "AI stands for artificial intelligence"},
-            {"model": "Model3", "response": "Artificial Intelligence"},
+            Stage1Result(model="Model1", response="AI is artificial intelligence"),
+            Stage1Result(model="Model2", response="AI stands for artificial intelligence"),
+            Stage1Result(model="Model3", response="Artificial Intelligence"),
         ]
         council_models = [
             {"name": "Model1", "provider": "bedrock", "model_id": "test1"},
