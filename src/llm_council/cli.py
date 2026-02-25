@@ -1,4 +1,5 @@
 """CLI entry point for LLM Council."""
+
 from __future__ import annotations
 
 import asyncio
@@ -91,13 +92,14 @@ def main():
     args = sys.argv[1:]
 
     if not args:
-        print('Usage: council.py [--config CONFIG_PATH] [-v|--verbose] "question"', file=sys.stderr)
+        print('Usage: council.py [--config CONFIG_PATH] [-v|--verbose] [--manifest] "question"', file=sys.stderr)
         sys.exit(1)
 
     # Handle flags
     config_path = None
     question = None
     verbose = False
+    print_manifest = False
 
     i = 0
     while i < len(args):
@@ -106,6 +108,9 @@ def main():
             i += 2
         elif args[i] in ["-v", "--verbose"]:
             verbose = True
+            i += 1
+        elif args[i] == "--manifest":
+            print_manifest = True
             i += 1
         else:
             question = args[i]
@@ -130,7 +135,7 @@ def main():
         sys.exit(1)
 
     # Run council
-    result = asyncio.run(run_council(question, config))
+    result = asyncio.run(run_council(question, config, print_manifest=print_manifest))
 
     # Output result
     print(result)

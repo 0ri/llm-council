@@ -4,6 +4,7 @@ Provides dual-mode rendering:
 - TTY mode: Rich live display with spinners and colors (when stderr is a terminal)
 - Non-TTY mode: Simple line-by-line log messages (when piped/subagent)
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -99,9 +100,7 @@ class ProgressManager:
             n = len(models)
             self._log(f"Stage {stage}/3: {description} ({n} model{'s' if n != 1 else ''})...")
 
-    async def update_model(
-        self, model: str, status: ModelStatus, elapsed: float | None = None
-    ):
+    async def update_model(self, model: str, status: ModelStatus, elapsed: float | None = None):
         """Update a model's status."""
         async with self._lock:
             if self.current_stage is None:

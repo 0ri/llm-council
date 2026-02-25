@@ -1,7 +1,8 @@
 """Pydantic configuration models for LLM Council."""
+
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -36,3 +37,56 @@ class CouncilConfig(BaseModel):
 
     council_models: list[ModelConfig] = Field(min_length=1)
     chairman: ModelConfig
+
+
+class Stage1Result(BaseModel):
+    """Result from a single model in Stage 1."""
+
+    model: str
+    response: str
+
+
+class Stage2Result(BaseModel):
+    """Result from a single model in Stage 2."""
+
+    model: str
+    ranking: str
+    parsed_ranking: list[str]
+    is_valid_ballot: bool
+
+
+class AggregateRanking(BaseModel):
+    """Aggregate ranking for a single model."""
+
+    model: str
+    average_rank: float
+    rankings_count: int
+    ci_lower: float | None = None
+    ci_upper: float | None = None
+    borda_score: float | None = None
+
+    @property
+    def confidence_interval(self) -> tuple[float, float]:
+        """Get confidence interval as tuple for backwards compatibility."""
+        return (self.ci_lower or 0, self.ci_upper or 0)
+
+    def __contains__(self, key: str) -> bool:
+        """Support 'in' operator for backwards compatibility with dict checks."""
+        if key == "confidence_interval":
+            return True
+        return key in self.__dict__ or key in self.model_fields
+
+    def __getitem__(self, key: str) -> Any:
+        """Support dict-style access for backwards compatibility."""
+        if key == "confidence_interval":
+            return self.confidence_interval
+        if key == "borda_score":
+            return self.borda_score
+        return getattr(self, key)
+
+
+class Stage3Result(BaseModel):
+    """Result from the chairman synthesis."""
+
+    model: str
+    response: str

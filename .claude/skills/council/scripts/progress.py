@@ -18,6 +18,7 @@ try:
     from rich.console import Console
     from rich.live import Live
     from rich.text import Text
+
     HAS_RICH = True
 except ImportError:
     HAS_RICH = False
@@ -25,6 +26,7 @@ except ImportError:
 
 class ModelStatus(Enum):
     """Status of a model in the council process."""
+
     PENDING = "pending"
     QUERYING = "querying"
     DONE = "done"
@@ -34,6 +36,7 @@ class ModelStatus(Enum):
 @dataclass
 class StageProgress:
     """Progress tracking for a single stage."""
+
     stage_num: int
     stage_total: int = 3
     description: str = ""
@@ -98,9 +101,7 @@ class ProgressManager:
             n = len(models)
             self._log(f"Stage {stage}/3: {description} ({n} model{'s' if n != 1 else ''})...")
 
-    async def update_model(
-        self, model: str, status: ModelStatus, elapsed: float | None = None
-    ):
+    async def update_model(self, model: str, status: ModelStatus, elapsed: float | None = None):
         """Update a model's status."""
         async with self._lock:
             if self.current_stage is None:

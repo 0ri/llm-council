@@ -1,4 +1,5 @@
 """Provider abstraction layer for LLM Council."""
+
 from __future__ import annotations
 
 import asyncio
@@ -91,11 +92,16 @@ class CircuitBreaker:
 _circuit_breakers: dict[str, CircuitBreaker] = {}
 
 
-def get_circuit_breaker(provider_name: str) -> CircuitBreaker:
-    """Get or create a circuit breaker for *provider_name*."""
-    if provider_name not in _circuit_breakers:
-        _circuit_breakers[provider_name] = CircuitBreaker()
-    return _circuit_breakers[provider_name]
+def get_circuit_breaker(identifier: str) -> CircuitBreaker:
+    """Get or create a circuit breaker for *identifier*.
+
+    Args:
+        identifier: Can be a provider name ("poe", "bedrock") for backward compatibility,
+                   or a model-specific key ("poe:GPT-5.3-Codex", "bedrock:claude-opus")
+    """
+    if identifier not in _circuit_breakers:
+        _circuit_breakers[identifier] = CircuitBreaker()
+    return _circuit_breakers[identifier]
 
 
 def reset_circuit_breakers() -> None:

@@ -38,12 +38,38 @@ Providers (Bedrock, Poe) are implemented as classes behind a common interface. N
 ### Key Files
 
 ```
+src/llm_council/                      # Main package
+├── __init__.py                       # Package initialization
+├── cli.py                            # CLI entry point
+├── council.py                        # Council orchestration
+├── stages.py                         # 3-stage deliberation logic
+├── providers/                        # Provider implementations
+│   ├── __init__.py
+│   ├── base.py                       # Provider protocol
+│   ├── bedrock.py                    # AWS Bedrock provider
+│   └── poe.py                        # Poe.com provider
+├── aggregation.py                    # Ranking aggregation algorithms
+├── parsing.py                        # Response parsing utilities
+├── security.py                       # Injection hardening
+├── formatting.py                     # Output formatting
+├── progress.py                       # Progress visualization
+├── cost.py                           # Cost tracking
+└── models.py                         # Data models
+
+tests/                                 # Test suite
+├── test_aggregation.py
+├── test_config.py
+├── test_council_integration.py
+├── test_parsing.py
+├── test_resilience.py
+└── test_security.py
+
 .claude/                              # Claude Code skill
 ├── skills/council/
 │   ├── commands/
 │   │   └── council.md                # Skill command definition
 │   └── scripts/
-│       └── council.py                # Self-contained CLI script
+│       └── council.py                # Skill wrapper script
 └── council-config.json               # Model configuration
 
 skills/                               # OpenClaw skill
@@ -107,6 +133,8 @@ Edit `.claude/council-config.json` to change models:
 - Model responses are wrapped in fenced blocks during peer review to prevent prompt injection
 - System messages instruct ranking/synthesis models to ignore manipulation attempts in responses
 - Anonymous labels (Response A/B/C) prevent model name bias
+- Nonce-based XML wrapping prevents response boundary confusion
+- Input sanitization removes potentially malicious patterns
 
 ## Requirements
 
@@ -128,16 +156,20 @@ Any bot on Poe's API (hundreds of models including open-source). Examples:
 - `Gemini-3.1-Pro`, `Gemini-3-Flash` - supports web_search, thinking_level
 - `Grok-4`
 
-## Direct Script Usage
+## Direct Usage
 
-The skill script can be run directly for testing:
+The council is available as a Python package:
 
 ```bash
-# Run with default config
-python .claude/skills/council/scripts/council.py "What is 2+2?"
+# Install the package
+uv sync  # or: pip install -e .
 
-# Run with custom config
-python .claude/skills/council/scripts/council.py --config /path/to/config.json "question"
+# Run via CLI entry point
+llm-council "What is 2+2?"
+llm-council --config /path/to/config.json "question"
+
+# Or run the skill script directly
+python .claude/skills/council/scripts/council.py "What is 2+2?"
 ```
 
 ## OpenClaw Skill

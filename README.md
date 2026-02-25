@@ -1,5 +1,7 @@
 # LLM Council
 
+![CI](https://github.com/0ri/llm-council/actions/workflows/ci.yml/badge.svg)
+
 Multi-model LLM deliberation with anonymized peer review. Available as a Claude Code skill and an OpenClaw skill.
 
 ## What It Does
@@ -141,11 +143,21 @@ Any bot available on Poe's API. Examples:
 - xAI: Grok-4
 - Plus hundreds of other models and community bots
 
-## Direct Script Usage
+## Direct Usage
 
-The council script can be run directly for testing:
+Install and run the council as a Python package:
 
 ```bash
+# Install with uv (recommended)
+uv sync
+
+# Or install with pip
+pip install -e .
+
+# Run the council
+llm-council "What is the capital of France?"
+
+# Or use the skill script directly
 python .claude/skills/council/scripts/council.py "What is the capital of France?"
 ```
 
@@ -180,10 +192,12 @@ This project was inspired by the desire to evaluate multiple LLMs side by side a
 
 ## Known Limitations
 
-- **Single-file script architecture** limits modularity and makes unit testing individual components difficult
 - **No built-in caching** - repeated queries re-query all models, increasing latency and API costs
 - **Ranking parser relies on models following JSON output format** - if a model returns malformed JSON rankings, parsing may fail
 - **No streaming output** - waits for full responses from all models before displaying results
+- **Limited provider support** - currently only Bedrock and Poe providers implemented, though the architecture supports adding more
+- **No persistence layer** - council sessions and results are not saved for later analysis
+- **Fixed deliberation stages** - the 3-stage process is hardcoded, not configurable for different workflows
 
 ## Contributing
 

@@ -1,5 +1,6 @@
 """Shared test fixtures for LLM Council tests."""
 
+import logging
 import sys
 from pathlib import Path
 
@@ -10,6 +11,30 @@ try:
     import llm_council  # noqa: F401 -- verify package is importable
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent.parent / ".claude" / "skills" / "council" / "scripts"))
+
+
+@pytest.fixture(autouse=True)
+def _reset_global_state():
+    """Reset all module-level global state between tests to prevent leakage."""
+    from llm_council.providers import reset_circuit_breakers, reset_providers, reset_semaphore
+
+    # Reset before test
+    reset_providers()
+    reset_circuit_breakers()
+    reset_semaphore()
+
+    # Clean up llm-council logger handlers to prevent handler accumulation
+    logger = logging.getLogger("llm-council")
+    logger.handlers.clear()
+    logger.setLevel(logging.WARNING)
+
+    yield
+
+    # Reset after test
+    reset_providers()
+    reset_circuit_breakers()
+    reset_semaphore()
+    logger.handlers.clear()
 
 
 @pytest.fixture

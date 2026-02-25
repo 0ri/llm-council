@@ -1,4 +1,5 @@
 """Ranking parser functions for extracting model rankings from text."""
+
 from __future__ import annotations
 
 import json

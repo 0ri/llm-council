@@ -1,14 +1,23 @@
 """3-stage deliberation logic for LLM Council."""
+
 from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import secrets
 import time
 from typing import Any
 
+from .models import Stage1Result, Stage2Result, Stage3Result
 from .parsing import parse_ranking_from_text
 from .progress import ModelStatus, ProgressManager
+from .prompts import (
+    RANKING_PROMPT_TEMPLATE,
+    RANKING_SYSTEM_MESSAGE_TEMPLATE,
+    SYNTHESIS_PROMPT_TEMPLATE,
+    SYNTHESIS_SYSTEM_MESSAGE_TEMPLATE,
+)
 from .providers import MODEL_TIMEOUT, get_circuit_breaker, get_provider, get_semaphore
 from .security import build_manipulation_resistance_msg, format_anonymized_responses
 
@@ -20,7 +29,7 @@ async def query_model(
     messages: list[dict[str, str]],
     poe_api_key: str | None = None,
     system_message: str | None = None,
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     """Query a model through its provider, with timeout.
 
     Args:
@@ -33,16 +42,23 @@ async def query_model(
         system_message: Optional system message for injection hardening
 
     Returns:
-        Response dict with 'content' key, or None if failed
+        Tuple of (response dict with 'content' key or None, token usage dict or None)
     """
     provider_name = model_config.get("provider", "poe")
     model_name = model_config.get("name", "unknown")
+    bot_name = model_config.get("bot_name", "")
+
+    # Build model-specific circuit breaker key
+    if provider_name == "poe" and bot_name:
+        cb_key = f"{provider_name}:{bot_name}"
+    else:
+        cb_key = f"{provider_name}:{model_name}"
 
     # Check circuit breaker
-    cb = get_circuit_breaker(provider_name)
+    cb = get_circuit_breaker(cb_key)
     if cb.is_open:
-        logger.warning(f"Circuit breaker open for {provider_name}, skipping {model_name}")
-        return None
+        logger.warning(f"Circuit breaker open for {cb_key}, skipping {model_name}")
+        return None, None
 
     # Add messages and system_message to config for provider access
     config_with_context = model_config.copy()
@@ -58,15 +74,21 @@ async def query_model(
                 timeout=MODEL_TIMEOUT,
             )
         cb.record_success()
-        return {"content": result}
+
+        # Extract token usage if available (tuple response from provider)
+        if isinstance(result, tuple):
+            content, token_usage = result
+            return {"content": content}, token_usage
+        else:
+            return {"content": result}, None
     except asyncio.TimeoutError:
         cb.record_failure()
         logger.warning(f"Timeout querying {model_name} after {MODEL_TIMEOUT}s")
-        return None
+        return None, None
     except Exception as e:
         cb.record_failure()
         logger.error(f"Error querying {model_name}: {e}")
-        return None
+        return None, None
 
 
 async def query_models_parallel(
@@ -75,7 +97,9 @@ async def query_models_parallel(
     poe_api_key: str | None = None,
     system_message: str | None = None,
     progress: ProgressManager | None = None,
-) -> dict[str, dict[str, Any] | None]:
+    min_responses: int | None = None,
+    soft_timeout: float = 120.0,
+) -> tuple[dict[str, dict[str, Any] | None], dict[str, dict[str, Any] | None]]:
     """Query multiple models in parallel via hybrid providers.
 
     Args:
@@ -84,18 +108,23 @@ async def query_models_parallel(
         poe_api_key: Poe API key
         system_message: Optional system message for injection hardening
         progress: Optional progress manager for live status updates
+        min_responses: Minimum responses needed to proceed (default: len(models)-1 or 2)
+        soft_timeout: Time to wait before proceeding with min_responses (default: 120s)
 
     Returns:
-        Dict mapping model name to response (or None if failed)
+        Tuple of (response dict, token usage dict) where both map model name to values
     """
+    # Calculate default min_responses if not provided
+    if min_responses is None:
+        min_responses = min(2, max(1, len(model_configs) - 1))
 
-    async def safe_query(config: dict[str, Any]) -> tuple[str, dict[str, Any] | None]:
+    async def safe_query(config: dict[str, Any]) -> tuple[str, dict[str, Any] | None, dict[str, Any] | None]:
         name = config.get("name", "unknown")
         start = time.time()
         if progress:
             await progress.update_model(name, ModelStatus.QUERYING)
         try:
-            result = await query_model(config, messages, poe_api_key, system_message)
+            result, token_usage = await query_model(config, messages, poe_api_key, system_message)
             elapsed = time.time() - start
             if progress:
                 await progress.update_model(
@@ -103,22 +132,82 @@ async def query_models_parallel(
                     ModelStatus.DONE if result else ModelStatus.FAILED,
                     elapsed,
                 )
-            return (name, result)
+            return (name, result, token_usage)
         except Exception as e:
             elapsed = time.time() - start
             if progress:
                 await progress.update_model(name, ModelStatus.FAILED, elapsed)
             logger.error(f"Error querying {name}: {e}")
-            return (name, None)
+            return (name, None, None)
 
     # Create tasks for all models
-    tasks = [safe_query(config) for config in model_configs]
+    tasks = [asyncio.create_task(safe_query(config)) for config in model_configs]
 
-    # Wait for all to complete
-    results = await asyncio.gather(*tasks)
+    # Track which tasks are done
+    completed_results: dict[str, dict[str, Any] | None] = {}
+    token_usages: dict[str, dict[str, Any] | None] = {}
+    pending_tasks = set(tasks)
 
-    # Convert to dict
-    return dict(results)
+    start_time = time.time()
+
+    while pending_tasks:
+        # Wait for either soft_timeout or some tasks to complete
+        remaining_time = max(0, soft_timeout - (time.time() - start_time))
+
+        done, pending = await asyncio.wait(
+            pending_tasks,
+            timeout=remaining_time,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        # Process completed tasks
+        for task in done:
+            name, result, token_usage = await task
+            completed_results[name] = result
+            token_usages[name] = token_usage
+            pending_tasks.discard(task)
+
+        # Check if we've reached soft timeout and have minimum responses
+        elapsed = time.time() - start_time
+        successful_responses = sum(1 for r in completed_results.values() if r is not None)
+
+        if elapsed >= soft_timeout and successful_responses >= min_responses:
+            # Cancel remaining tasks
+            skipped_models = []
+            for task in pending_tasks:
+                task.cancel()
+                # Try to get the model name from the task
+                try:
+                    # Extract model name from the config that was passed to safe_query
+                    # This is a bit hacky but works for logging purposes
+                    config_idx = tasks.index(task)
+                    model_name = model_configs[config_idx].get("name", "unknown")
+                    skipped_models.append(model_name)
+                except (ValueError, IndexError):
+                    skipped_models.append("unknown")
+
+            if skipped_models:
+                logger.warning(
+                    f"Soft timeout ({soft_timeout}s) reached with {successful_responses} responses. "
+                    f"Skipping models: {', '.join(skipped_models)}"
+                )
+
+            # Add None entries for cancelled tasks
+            for model_name in skipped_models:
+                completed_results[model_name] = None
+                token_usages[model_name] = None
+
+            break
+
+        # If no more pending tasks, we're done
+        if not pending_tasks:
+            break
+
+    # Wait for any remaining tasks to complete (shouldn't happen but be safe)
+    if pending_tasks:
+        await asyncio.gather(*pending_tasks, return_exceptions=True)
+
+    return completed_results, token_usages
 
 
 async def stage1_collect_responses(
@@ -126,8 +215,12 @@ async def stage1_collect_responses(
     council_models: list[dict[str, Any]],
     poe_api_key: str | None,
     progress: ProgressManager | None = None,
-) -> list[dict[str, Any]]:
-    """Stage 1: Collect individual responses from all council models."""
+) -> tuple[list[Stage1Result], dict[str, dict[str, Any] | None]]:
+    """Stage 1: Collect individual responses from all council models.
+
+    Returns:
+        Tuple of (stage1_results, token_usages)
+    """
     if progress:
         model_names = [m.get("name", "unknown") for m in council_models]
         await progress.start_stage(1, "Collecting responses", model_names)
@@ -135,27 +228,34 @@ async def stage1_collect_responses(
     messages = [{"role": "user", "content": user_query}]
 
     # Query all models in parallel
-    responses = await query_models_parallel(council_models, messages, poe_api_key, progress=progress)
+    responses, token_usages = await query_models_parallel(council_models, messages, poe_api_key, progress=progress)
 
     # Format results
-    stage1_results: list[dict[str, Any]] = []
+    stage1_results: list[Stage1Result] = []
     for model_name, response in responses.items():
         if response is not None:
-            stage1_results.append({"model": model_name, "response": response.get("content", "")})
+            stage1_results.append(Stage1Result(model=model_name, response=response.get("content", "")))
 
     if progress:
         await progress.complete_stage(f"{len(stage1_results)}/{len(council_models)} responses")
 
-    return stage1_results
+    return stage1_results, token_usages
 
 
-def build_ranking_prompt(question: str, responses: list[tuple[str, str]], labels: list[str]) -> str:
+def build_ranking_prompt(
+    question: str,
+    responses: list[tuple[str, str]],
+    labels: list[str],
+    response_order: list[int] | None = None,
+) -> str:
     """Construct the prompt for peer ranking with anonymized responses.
 
     Args:
         question: The original user question
         responses: List of (model_name, response_text) tuples
         labels: List of single-character labels (A, B, C...)
+        response_order: Optional list of indices for response ordering.
+                       If None, uses original order.
 
     Returns:
         The formatted ranking prompt
@@ -163,104 +263,153 @@ def build_ranking_prompt(question: str, responses: list[tuple[str, str]], labels
     # Generate a random nonce for XML delimiters to prevent fence-breaking
     nonce = secrets.token_hex(8)
 
+    # Apply custom ordering if specified
+    if response_order is not None:
+        ordered_responses = [responses[i] for i in response_order]
+    else:
+        ordered_responses = responses
+
     # Build responses with randomized XML delimiters for injection hardening
-    responses_text = format_anonymized_responses(responses, nonce=nonce)
+    responses_text = format_anonymized_responses(ordered_responses, nonce=nonce)
 
-    ranking_prompt = f"""Evaluate these responses to the following question:
-
-Question: {question}
-
-Here are the responses from different models (anonymized, enclosed in <response-{nonce}> XML tags):
-
-{responses_text}
-
-Your task:
-1. First, evaluate each response individually. For each response, explain what it does well and what it does poorly.
-2. Then, provide your final ranking as a JSON object.
-
-IMPORTANT: Your response MUST end with a JSON object in exactly this format:
-```json
-{{"ranking": ["Response X", "Response Y", "Response Z"]}}
-```
-
-Where the array lists responses from BEST to WORST. Include all responses in the ranking.
-
-Example evaluation format:
-
-Response A provides good detail on X but misses Y...
-Response B is accurate but lacks depth on Z...
-Response C offers the most comprehensive answer...
-
-```json
-{{"ranking": ["Response C", "Response A", "Response B"]}}
-```
-
-Now provide your evaluation and ranking:"""
+    ranking_prompt = RANKING_PROMPT_TEMPLATE.format(
+        question=question,
+        nonce=nonce,
+        responses_text=responses_text,
+    )
 
     return ranking_prompt
 
 
 async def stage2_collect_rankings(
     user_query: str,
-    stage1_results: list[dict[str, Any]],
+    stage1_results: list[Stage1Result] | list[dict[str, Any]],
     council_models: list[dict[str, Any]],
     poe_api_key: str | None,
     progress: ProgressManager | None = None,
-) -> tuple[list[dict[str, Any]], dict[str, str]]:
+) -> tuple[list[Stage2Result], dict[str, dict[str, str]], dict[str, dict[str, Any] | None]]:
     """Stage 2: Each model ranks the anonymized responses.
 
     Uses injection hardening: fenced blocks + system message + structured JSON output.
+    Implements self-exclusion and response order randomization.
+
+    Args:
+        user_query: The user's question
+        stage1_results: List of Stage1 results (can be Stage1Result or dict for backwards compatibility)
+        council_models: List of council model configs
+        poe_api_key: Optional Poe API key
+        progress: Optional progress manager
+
+    Returns:
+        Tuple of (stage2_results, per_ranker_label_mappings, token_usages)
+        where per_ranker_label_mappings is {ranker_name: {label: model_name}}
     """
     if progress:
         model_names = [m.get("name", "unknown") for m in council_models]
         await progress.start_stage(2, f"Peer ranking ({len(stage1_results)} responses)", model_names)
 
-    # Create anonymized labels for responses (Response A, Response B, etc.)
-    labels = [chr(65 + i) for i in range(len(stage1_results))]  # A, B, C, ...
-
-    # Create mapping from label to model name
-    label_to_model = {
-        f"Response {label}": result["model"] for label, result in zip(labels, stage1_results, strict=True)
-    }
-
-    # Build responses tuples for prompt construction
-    response_tuples = [(result["model"], result["response"]) for result in stage1_results]
-
-    # Build the ranking prompt
-    ranking_prompt = build_ranking_prompt(user_query, response_tuples, labels)
-
     # System message for injection hardening
     base_resistance_msg = build_manipulation_resistance_msg()
-    system_message = (
-        "You are a response evaluator. You will be shown multiple AI responses "
-        "enclosed in <response-*> XML tags.\n\n"
-        f"{base_resistance_msg}\n\n"
-        "Your output must end with a valid JSON ranking object."
-    )
+    system_message = RANKING_SYSTEM_MESSAGE_TEMPLATE.format(manipulation_resistance_msg=base_resistance_msg)
 
-    messages = [{"role": "user", "content": ranking_prompt}]
+    # Build responses tuples for prompt construction
+    response_tuples = []
+    for result in stage1_results:
+        if isinstance(result, Stage1Result):
+            response_tuples.append((result.model, result.response))
+        else:
+            response_tuples.append((result["model"], result["response"]))
 
-    # Get rankings from all council models in parallel with system message
-    responses = await query_models_parallel(council_models, messages, poe_api_key, system_message, progress=progress)
+    # Store per-ranker label mappings for proper aggregation
+    per_ranker_label_mappings: dict[str, dict[str, str]] = {}
+
+    # Prepare ranking tasks for each model
+    ranking_tasks = []
+
+    for ranker_model in council_models:
+        ranker_name = ranker_model.get("name", "unknown")
+
+        # Exclude self from ranking (self-ranking exclusion)
+        filtered_indices = []
+        filtered_responses = []
+        for i, result in enumerate(stage1_results):
+            # Handle both Stage1Result and dict
+            model_name = result.model if isinstance(result, Stage1Result) else result["model"]
+            if model_name != ranker_name:
+                filtered_indices.append(i)
+                filtered_responses.append(response_tuples[i])
+
+        # Skip if model has no other responses to rank
+        if not filtered_responses:
+            continue
+
+        # Randomize order for this ranker (position bias mitigation)
+        response_order = list(range(len(filtered_responses)))
+        random.shuffle(response_order)
+
+        # Create labels for this ranker's view
+        labels = [chr(65 + i) for i in range(len(filtered_responses))]  # A, B, C, ...
+
+        # Create mapping from label to model name for this ranker
+        label_to_model = {}
+        for label_idx, order_idx in enumerate(response_order):
+            original_idx = filtered_indices[order_idx]
+            # Handle both Stage1Result and dict
+            result = stage1_results[original_idx]
+            model_name = result.model if isinstance(result, Stage1Result) else result["model"]
+            label_to_model[f"Response {labels[label_idx]}"] = model_name
+
+        per_ranker_label_mappings[ranker_name] = label_to_model
+
+        # Build the ranking prompt with randomized order
+        ranking_prompt = build_ranking_prompt(user_query, filtered_responses, labels, response_order)
+
+        messages = [{"role": "user", "content": ranking_prompt}]
+
+        # Create async task for this ranker
+        async def get_ranking(model_config, msgs, ranker, num_resp):
+            response, token_usage = await query_model(model_config, msgs, poe_api_key, system_message)
+            if response is not None:
+                full_text = response.get("content", "")
+                parsed_ranking, is_valid = parse_ranking_from_text(full_text, num_responses=num_resp)
+                return Stage2Result(
+                    model=ranker,
+                    ranking=full_text,
+                    parsed_ranking=parsed_ranking,
+                    is_valid_ballot=is_valid,
+                ), token_usage
+            return None, None
+
+        ranking_tasks.append(get_ranking(ranker_model, messages, ranker_name, len(filtered_responses)))
+
+    # Execute all ranking tasks in parallel
+    if progress:
+        for model_name in [m.get("name", "unknown") for m in council_models]:
+            await progress.update_model(model_name, ModelStatus.QUERYING)
+
+    start_times = {m.get("name", "unknown"): time.time() for m in council_models}
+    ranking_results = await asyncio.gather(*ranking_tasks)
 
     # Format results
-    stage2_results: list[dict[str, Any]] = []
-    for model_name, response in responses.items():
-        if response is not None:
-            full_text = response.get("content", "")
-            parsed_ranking, is_valid = parse_ranking_from_text(full_text, num_responses=len(stage1_results))
-            stage2_results.append({
-                "model": model_name,
-                "ranking": full_text,
-                "parsed_ranking": parsed_ranking,
-                "is_valid_ballot": is_valid,
-            })
+    stage2_results: list[Stage2Result] = []
+    token_usages: dict[str, dict[str, Any] | None] = {}
+
+    for result in ranking_results:
+        if result is not None:
+            ranking_data, token_usage = result
+            if ranking_data is not None:
+                stage2_results.append(ranking_data)
+                token_usages[ranking_data.model] = token_usage
+                if progress:
+                    elapsed = time.time() - start_times[ranking_data.model]
+                    status = ModelStatus.DONE if ranking_data.is_valid_ballot else ModelStatus.FAILED
+                    await progress.update_model(ranking_data.model, status, elapsed)
 
     if progress:
-        valid = sum(1 for r in stage2_results if r.get("is_valid_ballot"))
+        valid = sum(1 for r in stage2_results if r.is_valid_ballot)
         await progress.complete_stage(f"{len(stage2_results)} rankings, {valid} valid ballots")
 
-    return stage2_results, label_to_model
+    return stage2_results, per_ranker_label_mappings, token_usages
 
 
 def build_synthesis_prompt(
@@ -299,22 +448,10 @@ def build_synthesis_prompt(
         ranking_summary_lines.append(f"- {label}: Average position {rank_info['average_rank']}")
     ranking_summary = "\n".join(ranking_summary_lines)
 
-    chairman_prompt = (
-        "Multiple AI models have provided responses to a user's question, "
-        "and then peer-ranked each other's responses anonymously.\n\n"
-        f"Original Question: {question}\n\n"
-        "STAGE 1 - Individual Responses (anonymized):\n\n"
-        f"{stage1_text}\n\n"
-        "STAGE 2 - Aggregate Peer Rankings (best to worst):\n\n"
-        f"{ranking_summary}\n\n"
-        "Your task as Chairman is to synthesize all of this information into "
-        "a single, comprehensive, accurate answer to the user's original "
-        "question. Consider:\n"
-        "- The individual responses and their insights\n"
-        "- The peer rankings and what they reveal about response quality\n"
-        "- Any patterns of agreement or disagreement\n\n"
-        "Provide a clear, well-reasoned final answer that represents "
-        "the council's collective wisdom:"
+    chairman_prompt = SYNTHESIS_PROMPT_TEMPLATE.format(
+        question=question,
+        stage1_text=stage1_text,
+        ranking_summary=ranking_summary,
     )
 
     return chairman_prompt
@@ -322,17 +459,30 @@ def build_synthesis_prompt(
 
 async def stage3_synthesize_final(
     user_query: str,
-    stage1_results: list[dict[str, Any]],
-    stage2_results: list[dict[str, Any]],
+    stage1_results: list[Stage1Result] | list[dict[str, Any]],
+    stage2_results: list[Stage2Result] | list[dict[str, Any]],
     label_to_model: dict[str, str],
     aggregate_rankings: list[dict[str, Any]],
     chairman_config: dict[str, Any],
     poe_api_key: str | None,
     progress: ProgressManager | None = None,
-) -> dict[str, Any]:
+) -> tuple[Stage3Result, dict[str, Any] | None]:
     """Stage 3: Chairman synthesizes final response.
 
     Uses anonymized labels to prevent bias toward specific models.
+
+    Args:
+        user_query: The user's question
+        stage1_results: List of Stage1 results (can be Stage1Result or dict for backwards compatibility)
+        stage2_results: List of Stage2 results (can be Stage2Result or dict for backwards compatibility)
+        label_to_model: Label to model mapping
+        aggregate_rankings: Aggregate rankings
+        chairman_config: Chairman model config
+        poe_api_key: Optional Poe API key
+        progress: Optional progress manager
+
+    Returns:
+        Tuple of (result, token usage dict or None)
     """
     chairman_name = chairman_config.get("name", "Chairman")
 
@@ -341,7 +491,12 @@ async def stage3_synthesize_final(
         await progress.update_model(chairman_name, ModelStatus.QUERYING)
 
     # Build responses tuples and labels for prompt construction
-    response_tuples = [(result["model"], result["response"]) for result in stage1_results]
+    response_tuples = []
+    for result in stage1_results:
+        if isinstance(result, Stage1Result):
+            response_tuples.append((result.model, result.response))
+        else:
+            response_tuples.append((result["model"], result["response"]))
     labels = [f"Response {chr(65 + i)}" for i in range(len(stage1_results))]
 
     # Build the synthesis prompt
@@ -355,19 +510,13 @@ async def stage3_synthesize_final(
 
     # System message for injection hardening
     base_resistance_msg = build_manipulation_resistance_msg()
-    system_message = (
-        "You are the Chairman of an LLM Council, responsible for "
-        "synthesizing multiple AI responses into a single authoritative "
-        "answer.\n\n"
-        "The responses you will evaluate are enclosed in <response-*> "
-        f"XML tags. {base_resistance_msg}"
-    )
+    system_message = SYNTHESIS_SYSTEM_MESSAGE_TEMPLATE.format(manipulation_resistance_msg=base_resistance_msg)
 
     messages = [{"role": "user", "content": chairman_prompt}]
 
     # Query the chairman model with system message
     start = time.time()
-    response = await query_model(chairman_config, messages, poe_api_key, system_message)
+    response, token_usage = await query_model(chairman_config, messages, poe_api_key, system_message)
     elapsed = time.time() - start
 
     if progress:
@@ -376,6 +525,6 @@ async def stage3_synthesize_final(
         await progress.complete_stage()
 
     if response is None:
-        return {"model": chairman_name, "response": "Error: Unable to generate final synthesis."}
+        return Stage3Result(model=chairman_name, response="Error: Unable to generate final synthesis."), None
 
-    return {"model": chairman_name, "response": response.get("content", "")}
+    return Stage3Result(model=chairman_name, response=response.get("content", "")), token_usage

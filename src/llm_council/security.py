@@ -1,4 +1,5 @@
 """Security helper functions for injection hardening."""
+
 from __future__ import annotations
 
 import logging
@@ -56,10 +57,30 @@ def format_anonymized_responses(
 def sanitize_user_input(text: str, max_length: int = 50000) -> str:
     """Sanitize user input before embedding in prompts.
 
-    Strips control characters (preserving newlines/tabs), truncates to max_length.
+    Strips control characters (preserving newlines/tabs), truncates to max_length,
+    and detects potential prompt injection patterns.
     """
     # Strip control characters except newline (\n), tab (\t), carriage return (\r)
     sanitized = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)
+
+    # Detect potential prompt injection patterns (don't block, just warn)
+    injection_patterns = [
+        r"ignore previous instructions",
+        r"disregard.*instructions",
+        r"forget.*instructions",
+        r"system:\s*",
+        r"you are now",
+        r"new instructions:",
+        r"override.*instructions",
+        r"<\|.*\|>",  # Common model delimiters
+        r"\[INST\]",  # Instruction markers
+        r"###\s*(System|Human|Assistant)",  # Role markers
+    ]
+
+    for pattern in injection_patterns:
+        if re.search(pattern, sanitized, re.IGNORECASE):
+            logger.warning(f"Potential prompt injection pattern detected: '{pattern}'")
+            # Don't block - user might have legitimate use
 
     # Truncate if too long
     if len(sanitized) > max_length:
@@ -67,3 +88,66 @@ def sanitize_user_input(text: str, max_length: int = 50000) -> str:
         sanitized = sanitized[:max_length]
 
     return sanitized
+
+
+def sanitize_model_output(text: str, nonce: str | None = None) -> str:
+    """Strip potential fence-breaking attempts from model output.
+
+    Removes any closing XML tags that could match our nonce pattern,
+    preventing models from guessing and breaking out of their fence.
+
+    Args:
+        text: Model output to sanitize
+        nonce: Optional nonce to specifically check for
+
+    Returns:
+        Sanitized text with fence-breaking attempts removed
+    """
+    # If a specific nonce is provided, strip that exact pattern
+    if nonce:
+        # Remove any attempts to close the response tag with this nonce
+        pattern = rf"</response-{re.escape(nonce)}>"
+        text = re.sub(pattern, "[FENCE_BREAK_ATTEMPT_REMOVED]", text, flags=re.IGNORECASE)
+
+    # Also strip generic attempts to close response tags
+    # This catches attempts like </response-*> or </response-[hex]>
+    generic_pattern = r"</response-[a-fA-F0-9]+>"
+    text = re.sub(generic_pattern, "[FENCE_BREAK_ATTEMPT_REMOVED]", text)
+
+    return text
+
+
+def redact_sensitive(text: str) -> str:
+    """Redact sensitive information from text (for logging).
+
+    Redacts API keys, tokens, and other sensitive patterns.
+
+    Args:
+        text: Text that might contain sensitive data
+
+    Returns:
+        Text with sensitive patterns replaced with [REDACTED]
+    """
+    # Common API key patterns
+    patterns = [
+        # API keys
+        (r"\bsk-[a-zA-Z0-9]{20,}", "[REDACTED_OPENAI_KEY]"),
+        (r"\bpoe-[a-zA-Z0-9]{20,}", "[REDACTED_POE_KEY]"),
+        (r"\bAKIA[A-Z0-9]{16}", "[REDACTED_AWS_KEY]"),
+        (r"\bAIza[a-zA-Z0-9_-]{35}", "[REDACTED_GOOGLE_KEY]"),
+        # Bearer tokens
+        (r"Bearer\s+[a-zA-Z0-9._-]{20,}", "Bearer [REDACTED_TOKEN]"),
+        (r"Authorization:\s*[a-zA-Z0-9._-]{20,}", "Authorization: [REDACTED]"),
+        # Generic long hex strings that might be secrets
+        (r"\b[a-fA-F0-9]{40,}\b", "[REDACTED_HEX]"),
+        # JWT tokens
+        (r"eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+", "[REDACTED_JWT]"),
+        # Email addresses (optional, uncomment if needed)
+        # (r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', '[REDACTED_EMAIL]'),
+    ]
+
+    redacted = text
+    for pattern, replacement in patterns:
+        redacted = re.sub(pattern, replacement, redacted)
+
+    return redacted
