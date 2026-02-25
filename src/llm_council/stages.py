@@ -22,7 +22,7 @@ from .prompts import (
     SYNTHESIS_SYSTEM_MESSAGE_TEMPLATE,
 )
 from .providers import MODEL_TIMEOUT
-from .security import build_manipulation_resistance_msg, format_anonymized_responses
+from .security import build_manipulation_resistance_msg, format_anonymized_responses, sanitize_model_output
 
 logger = logging.getLogger("llm-council")
 
@@ -364,8 +364,8 @@ async def stage2_collect_rankings(
     base_resistance_msg = build_manipulation_resistance_msg()
     system_message = RANKING_SYSTEM_MESSAGE_TEMPLATE.format(manipulation_resistance_msg=base_resistance_msg)
 
-    # Build responses tuples for prompt construction
-    response_tuples = [(result.model, result.response) for result in stage1_results]
+    # Build responses tuples for prompt construction, sanitizing outputs
+    response_tuples = [(result.model, sanitize_model_output(result.response)) for result in stage1_results]
 
     # Store per-ranker label mappings for proper aggregation
     per_ranker_label_mappings: dict[str, dict[str, str]] = {}
@@ -585,8 +585,8 @@ async def stage3_synthesize_final(
         await progress.start_stage(3, f"Chairman ({chairman_name}) synthesizing", [chairman_name])
         await progress.update_model(chairman_name, ModelStatus.QUERYING)
 
-    # Build responses tuples and labels for prompt construction
-    response_tuples = [(result.model, result.response) for result in stage1_results]
+    # Build responses tuples and labels for prompt construction, sanitizing outputs
+    response_tuples = [(result.model, sanitize_model_output(result.response)) for result in stage1_results]
     labels = [f"Response {chr(65 + i)}" for i in range(len(stage1_results))]
 
     # Build the synthesis prompt

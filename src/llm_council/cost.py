@@ -8,14 +8,25 @@ from typing import Any
 
 logger = logging.getLogger("llm-council")
 
-try:
-    import tiktoken
+_ENCODER = None
+HAS_TIKTOKEN = False
+_TIKTOKEN_LOADED = False
 
-    _ENCODER = tiktoken.get_encoding("cl100k_base")
-    HAS_TIKTOKEN = True
-except ImportError:
-    _ENCODER = None
-    HAS_TIKTOKEN = False
+
+def _get_encoder():
+    """Lazy-load tiktoken encoder on first use."""
+    global _ENCODER, HAS_TIKTOKEN, _TIKTOKEN_LOADED
+    if not _TIKTOKEN_LOADED:
+        _TIKTOKEN_LOADED = True
+        try:
+            import tiktoken
+
+            _ENCODER = tiktoken.get_encoding("cl100k_base")
+            HAS_TIKTOKEN = True
+        except ImportError:
+            _ENCODER = None
+            HAS_TIKTOKEN = False
+    return _ENCODER
 
 
 def estimate_tokens(text: str) -> int:
@@ -24,8 +35,9 @@ def estimate_tokens(text: str) -> int:
     Uses tiktoken cl100k_base encoding when available.
     Falls back to 4 chars/token heuristic.
     """
-    if HAS_TIKTOKEN and _ENCODER is not None:
-        return len(_ENCODER.encode(text))
+    encoder = _get_encoder()
+    if encoder is not None:
+        return len(encoder.encode(text))
     return len(text) // 4
 
 

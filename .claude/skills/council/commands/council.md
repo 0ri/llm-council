@@ -38,8 +38,8 @@ The anonymization prevents models from playing favorites.
      prompt="Run the LLM council to answer this question.
 
 Execute this command:
-export POE_API_KEY=$(grep POE_API_KEY /Users/neidich/Public/llm-council/.env 2>/dev/null | cut -d= -f2)
-uv run /Users/neidich/Public/llm-council/.claude/skills/council/scripts/council.py \"$ARGUMENTS\"
+export POE_API_KEY=$(grep POE_API_KEY .env 2>/dev/null | cut -d= -f2)
+uv run llm-council \"$ARGUMENTS\"
 
 Return the complete markdown output to display to the user."
    )

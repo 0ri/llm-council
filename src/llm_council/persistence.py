@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .security import redact_sensitive
+
 
 class RunLogger:
     """Writes structured JSONL records for a council run."""
@@ -20,8 +22,9 @@ class RunLogger:
     def _write_record(self, record: dict[str, Any]) -> None:
         record["run_id"] = self.run_id
         record["timestamp"] = datetime.now(timezone.utc).isoformat()
+        raw = json.dumps(record, default=str)
         with open(self.filepath, "a") as f:
-            f.write(json.dumps(record, default=str) + "\n")
+            f.write(redact_sensitive(raw) + "\n")
 
     def log_config(self, question: str, config: dict[str, Any]) -> None:
         self._write_record({"type": "config", "question": question, "config": config})

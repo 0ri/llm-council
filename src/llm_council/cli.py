@@ -17,15 +17,16 @@ logger = logging.getLogger("llm-council")
 def setup_logging(verbose: bool = False):
     """Configure logging for the council script."""
     level = logging.DEBUG if verbose else logging.INFO
-    handler = logging.StreamHandler(sys.stderr)
-    handler.setFormatter(
-        logging.Formatter(
-            "%(asctime)s [%(levelname)s] %(message)s",
-            datefmt="%H:%M:%S",
-        )
-    )
     logger.setLevel(level)
-    logger.addHandler(handler)
+    if not logger.handlers:
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s [%(levelname)s] %(message)s",
+                datefmt="%H:%M:%S",
+            )
+        )
+        logger.addHandler(handler)
 
 
 def load_config(config_path: str | None = None) -> dict:
@@ -129,8 +130,11 @@ async def _list_available_models() -> None:
     try:
         import boto3
 
-        client = boto3.client("bedrock")
-        response = client.list_foundation_models()
+        def _list_bedrock():
+            client = boto3.client("bedrock")
+            return client.list_foundation_models()
+
+        response = await asyncio.to_thread(_list_bedrock)
         models = response.get("modelSummaries", [])
         for m in sorted(models, key=lambda x: x.get("modelId", "")):
             model_id = m.get("modelId", "")
@@ -199,6 +203,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dry-run", dest="dry_run", action="store_true", help="Preview config and costs, no API calls")
     parser.add_argument("--list-models", dest="list_models", action="store_true", help="List available models and exit")
     parser.add_argument("--flatten", dest="flatten", metavar="PATH", help="Flatten a directory and prepend to question")
+    parser.add_argument("--seed", type=int, default=None, help="Seed for reproducible bootstrap confidence intervals")
     return parser
 
 
@@ -256,7 +261,14 @@ def main():
 
     # Run council
     result = asyncio.run(
-        run_council(question, config, print_manifest=args.manifest, log_dir=args.log_dir, max_stage=args.stage)
+        run_council(
+            question,
+            config,
+            print_manifest=args.manifest,
+            log_dir=args.log_dir,
+            max_stage=args.stage,
+            seed=args.seed,
+        )
     )
 
     # Output result

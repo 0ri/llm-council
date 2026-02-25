@@ -122,22 +122,16 @@ class BedrockProvider:
                 }
 
             # Handle extended thinking response format (multiple content blocks)
+            # Skip "thinking" blocks — only extract "text" type blocks
             content_blocks = result.get("content", [])
             text_content = ""
             for block in content_blocks:
-                if block.get("type") == "text":
+                if isinstance(block, dict) and block.get("type") == "text":
                     text_content = block.get("text", "")
                     break
-                elif isinstance(block, dict) and "text" in block:
-                    text_content = block["text"]
+                if isinstance(block, str):
+                    text_content = block
                     break
-
-            # Fallback for simple response format
-            if not text_content and content_blocks:
-                if isinstance(content_blocks[0], str):
-                    text_content = content_blocks[0]
-                elif isinstance(content_blocks[0], dict):
-                    text_content = content_blocks[0].get("text", "")
 
             return text_content, token_usage
 

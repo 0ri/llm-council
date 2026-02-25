@@ -155,6 +155,7 @@ class TestSetupLogging:
     def test_setup_logging_default(self):
         """Test logging setup with default settings."""
         with patch("llm_council.cli.logger") as mock_logger:
+            mock_logger.handlers = []  # Simulate no existing handlers
             setup_logging(verbose=False)
 
             mock_logger.setLevel.assert_called_with(20)  # INFO level
@@ -163,6 +164,7 @@ class TestSetupLogging:
     def test_setup_logging_verbose(self):
         """Test logging setup with verbose mode."""
         with patch("llm_council.cli.logger") as mock_logger:
+            mock_logger.handlers = []  # Simulate no existing handlers
             setup_logging(verbose=True)
 
             mock_logger.setLevel.assert_called_with(10)  # DEBUG level

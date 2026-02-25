@@ -9,7 +9,6 @@ from llm_council.context import CouncilContext
 from llm_council.cost import CouncilCostTracker
 from llm_council.manifest import RunManifest
 from llm_council.progress import ProgressManager
-from llm_council.providers import get_circuit_breaker, reset_circuit_breakers
 from llm_council.providers.bedrock import is_retryable_bedrock_error
 from llm_council.providers.poe import is_retryable_poe_error
 from llm_council.stages import query_models_parallel
@@ -103,43 +102,27 @@ class TestManifest:
 
 
 class TestPerModelCircuitBreakers:
-    """Tests for per-model circuit breaker functionality."""
+    """Tests for per-model circuit breaker isolation via CouncilContext."""
 
     def test_per_model_circuit_breakers(self):
         """Test that circuit breakers are per-model, not per-provider."""
-        reset_circuit_breakers()
+        from llm_council.context import CouncilContext
 
-        # Get circuit breakers for different models on same provider
-        cb_poe_gpt = get_circuit_breaker("poe:GPT-5.3-Codex")
-        cb_poe_gemini = get_circuit_breaker("poe:Gemini-3.1-Pro")
-        cb_bedrock_opus = get_circuit_breaker("bedrock:claude-opus")
+        ctx = CouncilContext()
+        cb_poe_gpt = ctx.get_circuit_breaker("poe:GPT-5.3-Codex")
+        cb_poe_gemini = ctx.get_circuit_breaker("poe:Gemini-3.1-Pro")
+        cb_bedrock_opus = ctx.get_circuit_breaker("bedrock:claude-opus")
 
-        # They should be different instances
         assert cb_poe_gpt is not cb_poe_gemini
         assert cb_poe_gpt is not cb_bedrock_opus
 
         # Failing one model shouldn't affect others
-        cb_poe_gpt.record_failure()
-        cb_poe_gpt.record_failure()
-        cb_poe_gpt.record_failure()
+        for _ in range(3):
+            cb_poe_gpt.record_failure()
 
         assert cb_poe_gpt.is_open
         assert not cb_poe_gemini.is_open
         assert not cb_bedrock_opus.is_open
-
-        reset_circuit_breakers()
-
-    def test_backward_compatibility(self):
-        """Test that provider-only keys still work."""
-        reset_circuit_breakers()
-
-        cb_poe = get_circuit_breaker("poe")
-        cb_bedrock = get_circuit_breaker("bedrock")
-
-        assert cb_poe is not cb_bedrock
-        assert get_circuit_breaker("poe") is cb_poe  # Same instance
-
-        reset_circuit_breakers()
 
 
 class TestRetryDiscrimination:
@@ -191,7 +174,7 @@ class TestActualTokenCounting:
 
     def test_cost_tracker_with_actual_tokens(self):
         """Test that actual tokens are preferred over estimates."""
-        with patch("llm_council.cost.HAS_TIKTOKEN", False):
+        with patch("llm_council.cost._ENCODER", None):
             tracker = CouncilCostTracker()
 
             # Record with actual token counts
@@ -228,7 +211,7 @@ class TestActualTokenCounting:
 
     def test_cost_summary_with_mixed_tokens(self):
         """Test summary output with mixed actual/estimated tokens."""
-        with patch("llm_council.cost.HAS_TIKTOKEN", False):
+        with patch("llm_council.cost._ENCODER", None):
             tracker = CouncilCostTracker()
 
             # Stage 1: one with actual, one estimated

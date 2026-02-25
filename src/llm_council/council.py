@@ -152,6 +152,7 @@ async def run_council(
     log_dir: str | None = None,
     context_factory: Any = None,
     max_stage: int = 3,
+    seed: int | None = None,
 ) -> str:
     """Run the council process up to the specified stage.
 
@@ -162,6 +163,7 @@ async def run_council(
         log_dir: If set, write JSONL run logs to this directory
         context_factory: Optional callable returning a CouncilContext (for testing)
         max_stage: Maximum stage to run (1, 2, or 3). Default: 3 (full run).
+        seed: Optional seed for reproducible bootstrap CI.
 
     Returns:
         Formatted council output string
@@ -253,7 +255,7 @@ async def run_council(
 
         # Calculate aggregate rankings with ballot validity tracking
         aggregate_rankings, valid_ballots, total_ballots = calculate_aggregate_rankings(
-            stage2_results, per_ranker_label_mappings
+            stage2_results, per_ranker_label_mappings, seed=seed
         )
 
         logger.info(f"Valid ballots: {valid_ballots}/{total_ballots}")

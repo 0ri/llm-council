@@ -12,6 +12,7 @@ def bootstrap_confidence_intervals(
     model_positions: list[int],
     n_resamples: int = 1000,
     confidence: float = 0.95,
+    rng: random.Random | None = None,
 ) -> tuple[float, float]:
     """Calculate bootstrap confidence intervals for average rank.
 
@@ -19,6 +20,7 @@ def bootstrap_confidence_intervals(
         model_positions: List of ranking positions for a model
         n_resamples: Number of bootstrap resamples
         confidence: Confidence level (default 0.95 for 95% CI)
+        rng: Optional seeded Random instance for reproducibility
 
     Returns:
         Tuple of (lower_bound, upper_bound) for the confidence interval
@@ -26,10 +28,12 @@ def bootstrap_confidence_intervals(
     if not model_positions:
         return (0.0, 0.0)
 
+    _rng = rng or random
+
     # Bootstrap resampling
     bootstrap_means = []
     for _ in range(n_resamples):
-        resample = random.choices(model_positions, k=len(model_positions))
+        resample = _rng.choices(model_positions, k=len(model_positions))
         bootstrap_means.append(sum(resample) / len(resample))
 
     # Sort bootstrap means
@@ -81,12 +85,14 @@ def calculate_borda_score(positions: list[int], n_candidates: int) -> float:
 def calculate_aggregate_rankings(
     stage2_results: list[Stage2Result],
     label_mappings: dict[str, dict[str, str]],
+    seed: int | None = None,
 ) -> tuple[list[AggregateRanking], int, int]:
     """Calculate aggregate rankings across all models.
 
     Args:
         stage2_results: List of Stage2Result ranking results
         label_mappings: Per-ranker mappings: {ranker_name: {label: model_name}}
+        seed: Optional seed for reproducible bootstrap confidence intervals
 
     Returns:
         Tuple of (aggregate rankings list, valid ballot count, total ballot count)
@@ -114,6 +120,9 @@ def calculate_aggregate_rankings(
         if ranking.is_valid_ballot:
             max_candidates = max(max_candidates, len(ranking.parsed_ranking))
 
+    # Create seeded RNG if seed provided
+    rng = random.Random(seed) if seed is not None else None
+
     # Calculate aggregate metrics for each model
     aggregate: list[AggregateRanking] = []
     for model, positions in model_positions.items():
@@ -121,7 +130,7 @@ def calculate_aggregate_rankings(
             avg_rank = sum(positions) / len(positions)
 
             # Calculate confidence intervals
-            ci_lower, ci_upper = bootstrap_confidence_intervals(positions)
+            ci_lower, ci_upper = bootstrap_confidence_intervals(positions, rng=rng)
 
             # Calculate Borda score
             # Use max_candidates as the number of candidates for Borda scoring
@@ -138,7 +147,7 @@ def calculate_aggregate_rankings(
                 )
             )
 
-    # Sort by average rank (lower is better)
-    aggregate.sort(key=lambda x: x.average_rank)
+    # Sort by average rank (lower is better), break ties by higher Borda, more rankings, then name
+    aggregate.sort(key=lambda x: (x.average_rank, -(x.borda_score or 0), -x.rankings_count, x.model))
 
     return (aggregate, valid_ballots, total_ballots)

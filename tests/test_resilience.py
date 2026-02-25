@@ -4,8 +4,8 @@ from unittest.mock import patch
 
 import pytest
 
-from llm_council.cost import HAS_TIKTOKEN, CouncilCostTracker, estimate_tokens
-from llm_council.providers import CircuitBreaker, get_circuit_breaker, reset_circuit_breakers
+from llm_council.cost import CouncilCostTracker, estimate_tokens
+from llm_council.providers import CircuitBreaker
 
 
 class TestCircuitBreaker:
@@ -32,30 +32,12 @@ class TestCircuitBreaker:
     def test_cooldown_transitions_to_half_open(self):
         cb = CircuitBreaker(failure_threshold=1, cooldown_seconds=0.0)
         cb.record_failure()
-        # With cooldown=0, the very first is_open check finds cooldown has elapsed
-        # (time elapsed >= 0.0 is always true), transitions to half-open, returns False
         assert not cb.is_open  # Immediately half-open, allows retry
 
     def test_remains_open_during_cooldown(self):
         cb = CircuitBreaker(failure_threshold=1, cooldown_seconds=9999.0)
         cb.record_failure()
         assert cb.is_open  # Long cooldown, circuit stays open
-
-    def test_get_circuit_breaker_creates_per_provider(self):
-        reset_circuit_breakers()
-        cb1 = get_circuit_breaker("poe")
-        cb2 = get_circuit_breaker("bedrock")
-        assert cb1 is not cb2
-        # Same provider returns same instance
-        assert get_circuit_breaker("poe") is cb1
-        reset_circuit_breakers()
-
-    def test_reset_circuit_breakers(self):
-        reset_circuit_breakers()
-        cb1 = get_circuit_breaker("poe")
-        reset_circuit_breakers()
-        cb2 = get_circuit_breaker("poe")
-        assert cb1 is not cb2
 
 
 class TestCostTracker:
@@ -93,7 +75,7 @@ class TestCostTracker:
         assert "Stage 3" in summary
 
     def test_token_estimation(self):
-        with patch("llm_council.cost.HAS_TIKTOKEN", False):
+        with patch("llm_council.cost._ENCODER", None):
             tracker = CouncilCostTracker()
             # 400 chars input, 800 chars output -> ~100 in, ~200 out tokens (fallback)
             tracker.record("Model-A", 1, "x" * 400, "y" * 800)
@@ -102,19 +84,18 @@ class TestCostTracker:
             assert tracker.total_tokens == 300
 
     def test_estimate_tokens_with_tiktoken(self):
-        if not HAS_TIKTOKEN:
+        # Trigger lazy load
+        from llm_council.cost import _get_encoder
+
+        if _get_encoder() is None:
             pytest.skip("tiktoken not installed")
         # Known string: "Hello, world!" should give a reasonable token count
         count = estimate_tokens("Hello, world!")
         assert 1 <= count <= 10
-        # Empty string should produce zero tokens
         assert estimate_tokens("") == 0
 
     def test_estimate_tokens_fallback(self):
-        with patch("llm_council.cost.HAS_TIKTOKEN", False):
-            # Fallback: len("abcd") // 4 = 1
+        with patch("llm_council.cost._ENCODER", None):
             assert estimate_tokens("abcd") == 1
-            # 400 chars -> 100 tokens
             assert estimate_tokens("x" * 400) == 100
-            # Empty string -> 0
             assert estimate_tokens("") == 0

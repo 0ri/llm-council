@@ -12,12 +12,6 @@ from botocore.exceptions import ClientError
 from llm_council.providers import (
     BedrockProvider,
     PoeProvider,
-    get_circuit_breaker,
-    get_provider,
-    get_semaphore,
-    reset_circuit_breakers,
-    reset_providers,
-    reset_semaphore,
 )
 
 # Check if fastapi_poe is available
@@ -95,8 +89,8 @@ class TestBedrockProvider:
                 "Test prompt", {"model_id": "claude-opus", "budget_tokens": 10000}, timeout=60
             )
 
-            # Current implementation takes the first block with a "text" key
-            assert result == "Let me think about this..."
+            # Should return the text block, not the thinking block
+            assert result == "Here is my answer"
             assert usage == {"input_tokens": 100, "output_tokens": 50}
 
     @pytest.mark.asyncio
@@ -127,9 +121,10 @@ class TestBedrockProvider:
 
             # First call fails with retryable error, second succeeds
             error_response = {"Error": {"Code": "ThrottlingException"}, "ResponseMetadata": {"HTTPStatusCode": 429}}
+            success_body = json.dumps({"content": [{"type": "text", "text": "Success"}]}).encode()
             mock_client.invoke_model.side_effect = [
                 ClientError(error_response, "invoke_model"),
-                {"body": Mock(read=Mock(return_value=json.dumps({"content": [{"text": "Success"}]}).encode()))},
+                {"body": Mock(read=Mock(return_value=success_body))},
             ]
 
             provider = BedrockProvider()
@@ -163,7 +158,7 @@ class TestBedrockProvider:
             mock_client = Mock()
             mock_boto3_client.return_value = mock_client
             mock_client.invoke_model.return_value = {
-                "body": Mock(read=Mock(return_value=json.dumps({"content": [{"text": "OK"}]}).encode()))
+                "body": Mock(read=Mock(return_value=json.dumps({"content": [{"type": "text", "text": "OK"}]}).encode()))
             }
 
             provider = BedrockProvider()
@@ -180,7 +175,7 @@ class TestBedrockProvider:
             mock_client = Mock()
             mock_boto3_client.return_value = mock_client
             mock_client.invoke_model.return_value = {
-                "body": Mock(read=Mock(return_value=json.dumps({"content": [{"text": "OK"}]}).encode()))
+                "body": Mock(read=Mock(return_value=json.dumps({"content": [{"type": "text", "text": "OK"}]}).encode()))
             }
 
             provider = BedrockProvider()
@@ -428,160 +423,3 @@ class TestPoeProvider:
             yield PartialResponse(text=text)
 
         return stream()
-
-
-class TestProviderRegistry:
-    """Test the provider registry and caching."""
-
-    def test_get_provider_caching(self):
-        """Test that get_provider returns the same instance."""
-        reset_providers()  # Clean slate
-
-        with patch("boto3.client"):
-            provider1 = get_provider("bedrock")
-            provider2 = get_provider("bedrock")
-            assert provider1 is provider2
-
-    def test_get_poe_provider_requires_api_key(self):
-        """Test that Poe provider requires API key."""
-        reset_providers()
-
-        with pytest.raises(ValueError, match="POE_API_KEY required"):
-            get_provider("poe", api_key=None)
-
-        # Should work with API key
-        provider = get_provider("poe", api_key="test-key")
-        assert isinstance(provider, PoeProvider)
-
-    def test_get_unknown_provider(self):
-        """Test that unknown provider raises error."""
-        with pytest.raises(ValueError, match="Unknown provider"):
-            get_provider("unknown_provider")
-
-    def test_reset_providers(self):
-        """Test that reset_providers clears the cache."""
-        reset_providers()
-
-        with patch("boto3.client"):
-            provider1 = get_provider("bedrock")
-            reset_providers()
-            provider2 = get_provider("bedrock")
-
-            # Should be different instances after reset
-            assert provider1 is not provider2
-
-
-class TestCircuitBreakers:
-    """Test circuit breaker functionality."""
-
-    def test_circuit_breaker_opens_after_failures(self):
-        """Test that circuit breaker opens after threshold failures."""
-        reset_circuit_breakers()
-        breaker = get_circuit_breaker("test-model")
-
-        assert not breaker.is_open
-
-        # Record failures up to threshold
-        breaker.record_failure()
-        breaker.record_failure()
-        assert not breaker.is_open  # Still closed
-
-        breaker.record_failure()  # Third failure (default threshold)
-        assert breaker.is_open
-
-    def test_circuit_breaker_resets_on_success(self):
-        """Test that circuit breaker resets on success."""
-        reset_circuit_breakers()
-        breaker = get_circuit_breaker("test-model")
-
-        # Open the breaker
-        for _ in range(3):
-            breaker.record_failure()
-        assert breaker.is_open
-
-        # Wait for cooldown (simulate with direct state change for testing)
-        breaker._state = "half-open"
-        assert not breaker.is_open
-
-        # Success should close it
-        breaker.record_success()
-        assert not breaker.is_open
-        assert breaker._failure_count == 0
-
-    def test_circuit_breaker_cooldown(self):
-        """Test that circuit breaker respects cooldown period."""
-        reset_circuit_breakers()
-        breaker = get_circuit_breaker("test-model")
-        breaker.cooldown_seconds = 0.1  # Short cooldown for testing
-
-        # Open the breaker
-        for _ in range(3):
-            breaker.record_failure()
-
-        assert breaker.is_open
-
-        # Still open immediately
-        assert breaker.is_open
-
-        # Wait for cooldown
-        import time
-
-        time.sleep(0.15)
-
-        # Should be half-open now
-        assert not breaker.is_open
-
-    def test_reset_circuit_breakers(self):
-        """Test that reset_circuit_breakers clears all breakers."""
-        breaker1 = get_circuit_breaker("model1")
-        breaker2 = get_circuit_breaker("model2")
-
-        breaker1.record_failure()
-        breaker2.record_failure()
-
-        reset_circuit_breakers()
-
-        # New instances should be created
-        new_breaker1 = get_circuit_breaker("model1")
-        assert new_breaker1 is not breaker1
-        assert new_breaker1._failure_count == 0
-
-
-class TestSemaphore:
-    """Test semaphore for rate limiting."""
-
-    @pytest.mark.asyncio
-    async def test_semaphore_limits_concurrency(self):
-        """Test that semaphore limits concurrent operations."""
-        reset_semaphore()
-        sem = get_semaphore(max_concurrent=2)
-
-        counter = 0
-        max_concurrent = 0
-
-        async def worker():
-            nonlocal counter, max_concurrent
-            async with sem:
-                counter += 1
-                max_concurrent = max(max_concurrent, counter)
-                await asyncio.sleep(0.01)
-                counter -= 1
-
-        # Start 5 workers but only 2 should run concurrently
-        await asyncio.gather(*[worker() for _ in range(5)])
-
-        assert max_concurrent == 2
-
-    def test_semaphore_caching(self):
-        """Test that get_semaphore returns the same instance."""
-        reset_semaphore()
-        sem1 = get_semaphore(4)
-        sem2 = get_semaphore(4)
-        assert sem1 is sem2
-
-    def test_reset_semaphore(self):
-        """Test that reset_semaphore clears the cache."""
-        sem1 = get_semaphore(4)
-        reset_semaphore()
-        sem2 = get_semaphore(4)
-        assert sem1 is not sem2

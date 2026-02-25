@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import time as _time
 import typing
 
@@ -26,34 +25,6 @@ class Provider(typing.Protocol):
     """Protocol for LLM providers."""
 
     async def query(self, prompt: str, model_config: dict, timeout: int) -> tuple[str, dict | None]: ...
-
-
-# ---------------------------------------------------------------------------
-# Async semaphore for rate-limit protection
-# ---------------------------------------------------------------------------
-
-_semaphore: asyncio.Semaphore | None = None
-
-
-# Deprecated: use CouncilContext instead
-def get_semaphore(max_concurrent: int = 4) -> asyncio.Semaphore:
-    """Get or create a semaphore for limiting concurrent provider calls."""
-    global _semaphore
-    if _semaphore is None:
-        _semaphore = asyncio.Semaphore(max_concurrent)
-    return _semaphore
-
-
-# Deprecated: use CouncilContext instead
-def reset_semaphore() -> None:
-    """Reset the semaphore (for testing)."""
-    global _semaphore
-    _semaphore = None
-
-
-# ---------------------------------------------------------------------------
-# Circuit breaker pattern
-# ---------------------------------------------------------------------------
 
 
 class CircuitBreaker:
@@ -91,61 +62,6 @@ class CircuitBreaker:
             self._state = "open"
 
 
-# Per-provider circuit breakers
-_circuit_breakers: dict[str, CircuitBreaker] = {}
-
-
-# Deprecated: use CouncilContext instead
-def get_circuit_breaker(identifier: str) -> CircuitBreaker:
-    """Get or create a circuit breaker for *identifier*.
-
-    Args:
-        identifier: Can be a provider name ("poe", "bedrock") for backward compatibility,
-                   or a model-specific key ("poe:GPT-5.3-Codex", "bedrock:claude-opus")
-    """
-    if identifier not in _circuit_breakers:
-        _circuit_breakers[identifier] = CircuitBreaker()
-    return _circuit_breakers[identifier]
-
-
-# Deprecated: use CouncilContext instead
-def reset_circuit_breakers() -> None:
-    """Reset all circuit breakers (for testing)."""
-    _circuit_breakers.clear()
-
-
-# ---------------------------------------------------------------------------
-# Provider registry
-# ---------------------------------------------------------------------------
-
-_providers: dict[str, Provider] = {}
-
-
-# Deprecated: use CouncilContext instead
-def get_provider(provider_name: str, api_key: str | None = None) -> Provider:
-    """Get or create a provider instance."""
-    if provider_name not in _providers:
-        if provider_name == "bedrock":
-            _providers[provider_name] = BedrockProvider()
-        elif provider_name == "poe":
-            if not api_key:
-                raise ValueError("POE_API_KEY required for Poe provider")
-            _providers[provider_name] = PoeProvider(api_key)
-        elif provider_name == "openrouter":
-            if not api_key:
-                raise ValueError("OPENROUTER_API_KEY required for OpenRouter provider")
-            _providers[provider_name] = OpenRouterProvider(api_key)
-        else:
-            raise ValueError(f"Unknown provider: {provider_name}")
-    return _providers[provider_name]
-
-
-# Deprecated: use CouncilContext instead
-def reset_providers() -> None:
-    """Clear the provider registry (useful for testing)."""
-    _providers.clear()
-
-
 __all__ = [
     "BedrockProvider",
     "CircuitBreaker",
@@ -157,10 +73,4 @@ __all__ = [
     "OpenRouterProvider",
     "Provider",
     "PoeProvider",
-    "get_circuit_breaker",
-    "get_provider",
-    "get_semaphore",
-    "reset_circuit_breakers",
-    "reset_providers",
-    "reset_semaphore",
 ]
