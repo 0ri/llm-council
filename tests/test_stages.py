@@ -33,9 +33,8 @@ class TestBuildRankingPrompt:
         """Test basic ranking prompt construction."""
         question = "What is 2+2?"
         responses = [("Model1", "Four"), ("Model2", "4")]
-        labels = ["A", "B"]
 
-        prompt = build_ranking_prompt(question, responses, labels)
+        prompt = build_ranking_prompt(question, responses)
 
         assert "What is 2+2?" in prompt
         assert "Response A" in prompt
@@ -48,13 +47,12 @@ class TestBuildRankingPrompt:
         """Test that response order can be randomized."""
         question = "Test question"
         responses = [("M1", "Answer 1"), ("M2", "Answer 2"), ("M3", "Answer 3")]
-        labels = ["A", "B", "C"]
 
         # Original order
-        prompt1 = build_ranking_prompt(question, responses, labels, response_order=None)
+        prompt1 = build_ranking_prompt(question, responses, response_order=None)
 
         # Custom order (reversed)
-        prompt2 = build_ranking_prompt(question, responses, labels, response_order=[2, 1, 0])
+        prompt2 = build_ranking_prompt(question, responses, response_order=[2, 1, 0])
 
         # The prompts should be different due to different ordering
         assert prompt1 != prompt2
@@ -71,13 +69,12 @@ class TestBuildRankingPrompt:
         """Test that response order actually changes which content appears where."""
         question = "Test"
         responses = [("M1", "First answer"), ("M2", "Second answer"), ("M3", "Third answer")]
-        labels = ["A", "B", "C"]
 
         # Original order
-        prompt_original = build_ranking_prompt(question, responses, labels, response_order=[0, 1, 2])
+        prompt_original = build_ranking_prompt(question, responses, response_order=[0, 1, 2])
 
         # Reversed order
-        prompt_reversed = build_ranking_prompt(question, responses, labels, response_order=[2, 1, 0])
+        prompt_reversed = build_ranking_prompt(question, responses, response_order=[2, 1, 0])
 
         # In original order, "First answer" should come before "Third answer"
         # In reversed order, "Third answer" should come before "First answer"

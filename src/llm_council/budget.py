@@ -34,15 +34,17 @@ class BudgetGuard:
     total_cost_usd: float = field(default=0.0, init=False)
     queries: list[dict[str, Any]] = field(default_factory=list, init=False)
 
-    def can_afford(
+    def reserve(
         self,
         estimated_input_tokens: int,
         estimated_output_tokens: int,
         model_name: str,
     ) -> None:
-        """Pre-flight check: would this query exceed the budget?
+        """Atomically check and reserve estimated tokens before a query.
 
-        Does NOT mutate state. Call ``commit()`` after a successful query.
+        Deducts the estimate immediately so concurrent queries see reduced budget.
+        Call ``commit()`` after success to adjust to actual usage, or
+        ``release()`` on failure to return the reservation.
 
         Raises:
             BudgetExceededError: If the query would exceed budget limits.
@@ -73,24 +75,60 @@ class BudgetGuard:
                 f"Query would add ${query_cost:.2f}."
             )
 
+        # Atomically deduct the estimate
+        self.total_input_tokens = projected_input
+        self.total_output_tokens = projected_output
+        self.total_cost_usd = projected_cost
+
         logger.debug(
-            f"Budget preflight OK for {model_name}: "
+            f"Budget reserved for {model_name}: "
             f"{projected_total}/{self.max_tokens or 'unlimited'} tokens, "
             f"${projected_cost:.2f}/${self.max_cost_usd or 'unlimited'}"
         )
+
+    def release(
+        self,
+        estimated_input_tokens: int,
+        estimated_output_tokens: int,
+        model_name: str,
+    ) -> None:
+        """Return a reservation on query failure (no tokens were actually used)."""
+        query_cost = (
+            estimated_input_tokens / 1000 * self.input_cost_per_1k
+            + estimated_output_tokens / 1000 * self.output_cost_per_1k
+        )
+        self.total_input_tokens -= estimated_input_tokens
+        self.total_output_tokens -= estimated_output_tokens
+        self.total_cost_usd -= query_cost
+        logger.debug(f"Budget released for {model_name}: {estimated_input_tokens + estimated_output_tokens} tokens")
 
     def commit(
         self,
         input_tokens: int,
         output_tokens: int,
         model_name: str,
+        reserved_input: int = 0,
+        reserved_output: int = 0,
     ) -> None:
-        """Record actual token usage after a successful query."""
+        """Adjust reservation to actual usage after a successful query.
+
+        If reserved_input/reserved_output are provided, adjusts the difference
+        between the reservation and actual usage. Otherwise adds actual usage directly.
+        """
         query_cost = input_tokens / 1000 * self.input_cost_per_1k + output_tokens / 1000 * self.output_cost_per_1k
 
-        self.total_input_tokens += input_tokens
-        self.total_output_tokens += output_tokens
-        self.total_cost_usd += query_cost
+        if reserved_input or reserved_output:
+            # Adjust: swap reservation for actual usage
+            reserved_cost = (
+                reserved_input / 1000 * self.input_cost_per_1k + reserved_output / 1000 * self.output_cost_per_1k
+            )
+            self.total_input_tokens += input_tokens - reserved_input
+            self.total_output_tokens += output_tokens - reserved_output
+            self.total_cost_usd += query_cost - reserved_cost
+        else:
+            self.total_input_tokens += input_tokens
+            self.total_output_tokens += output_tokens
+            self.total_cost_usd += query_cost
 
         self.queries.append(
             {
@@ -103,15 +141,36 @@ class BudgetGuard:
 
         logger.debug(f"Budget committed for {model_name}: {input_tokens} in + {output_tokens} out, ${query_cost:.4f}")
 
+    def can_afford(
+        self,
+        estimated_input_tokens: int,
+        estimated_output_tokens: int,
+        model_name: str,
+    ) -> None:
+        """Read-only preflight check (alias for reserve without mutation).
+
+        Kept for backwards compat. Prefer ``reserve()`` for concurrent use.
+        """
+        # Temporarily check without mutating by calling reserve then release
+        self.reserve(estimated_input_tokens, estimated_output_tokens, model_name)
+        self.release(estimated_input_tokens, estimated_output_tokens, model_name)
+
     def check_and_update(
         self,
         estimated_input_tokens: int,
         estimated_output_tokens: int,
         model_name: str,
     ) -> None:
-        """Legacy: preflight + immediate commit (kept for backwards compat)."""
-        self.can_afford(estimated_input_tokens, estimated_output_tokens, model_name)
-        self.commit(estimated_input_tokens, estimated_output_tokens, model_name)
+        """Legacy: reserve + immediate commit with same values (kept for backwards compat)."""
+        self.reserve(estimated_input_tokens, estimated_output_tokens, model_name)
+        # Commit with reserved amounts so the adjustment is zero (already deducted by reserve)
+        self.commit(
+            estimated_input_tokens,
+            estimated_output_tokens,
+            model_name,
+            reserved_input=estimated_input_tokens,
+            reserved_output=estimated_output_tokens,
+        )
 
     def reset(self) -> None:
         """Reset all tracking counters."""

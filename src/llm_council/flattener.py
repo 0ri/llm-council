@@ -79,6 +79,7 @@ SKIP_DIRS = frozenset(
         "build",
         ".eggs",
         "*.egg-info",
+        "logs",
     }
 )
 
@@ -98,6 +99,10 @@ SKIP_FILES = frozenset(
         "credentials.json",
         "*.pem",
         "*.key",
+        "llm-council-flat*.md",
+        "council-*-report.md",
+        "council-*-output.md",
+        "council-self-critique*.md",
     }
 )
 
@@ -145,12 +150,11 @@ def _should_skip_dir(name: str) -> bool:
 
 def _should_skip_file(path: Path) -> bool:
     """Check if a file should be skipped."""
+    import fnmatch
+
     name = path.name
     for pattern in SKIP_FILES:
-        if pattern.startswith("*"):
-            if name.endswith(pattern[1:]):
-                return True
-        elif name == pattern:
+        if fnmatch.fnmatch(name, pattern):
             return True
     return False
 

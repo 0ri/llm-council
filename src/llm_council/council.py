@@ -153,6 +153,7 @@ async def run_council(
     context_factory: Any = None,
     max_stage: int = 3,
     seed: int | None = None,
+    use_cache: bool = True,
 ) -> str:
     """Run the council process up to the specified stage.
 
@@ -164,6 +165,7 @@ async def run_council(
         context_factory: Optional callable returning a CouncilContext (for testing)
         max_stage: Maximum stage to run (1, 2, or 3). Default: 3 (full run).
         seed: Optional seed for reproducible bootstrap CI.
+        use_cache: If True, use local SQLite cache for Stage 1 responses.
 
     Returns:
         Formatted council output string
@@ -200,6 +202,8 @@ async def run_council(
     if context_factory:
         ctx = context_factory()
     else:
+        from .cache import ResponseCache
+
         ctx = CouncilContext(
             poe_api_key=os.environ.get("POE_API_KEY"),
             openrouter_api_key=os.environ.get("OPENROUTER_API_KEY"),
@@ -207,6 +211,7 @@ async def run_council(
             budget_guard=create_budget_guard(config),
             progress=ProgressManager(),
             stage2_max_retries=config.get("stage2_retries", 1),
+            cache=ResponseCache() if use_cache else None,
         )
 
     if ctx.budget_guard:

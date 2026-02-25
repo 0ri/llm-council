@@ -65,15 +65,19 @@ async def query_model(
         logger.warning(f"Circuit breaker open for {cb_key}, skipping {model_name}")
         return None, None
 
-    # Budget preflight (no mutation — only commit after success)
+    # Budget reservation (atomic deduction so concurrent queries see reduced budget)
+    estimated_input = 0
+    estimated_output = 0
+    budget_reserved = False
     if ctx.budget_guard is not None:
         input_text = " ".join(m.get("content", "") for m in messages)
         if system_message:
             input_text += " " + system_message
         estimated_input = estimate_tokens(input_text)
-        estimated_output = 2000  # conservative estimate for preflight
+        estimated_output = 2000  # conservative estimate
         try:
-            ctx.budget_guard.can_afford(estimated_input, estimated_output, model_name)
+            ctx.budget_guard.reserve(estimated_input, estimated_output, model_name)
+            budget_reserved = True
         except BudgetExceededError:
             logger.warning(f"Budget exceeded, skipping {model_name}")
             return None, None
@@ -96,19 +100,23 @@ async def query_model(
         # Extract token usage if available (tuple response from provider)
         content, token_usage = result
 
-        # Commit actual usage to budget (only on success)
-        if ctx.budget_guard is not None:
+        # Adjust reservation to actual usage
+        if budget_reserved:
             actual_in = token_usage.get("input_tokens", estimated_input) if token_usage else estimated_input
             actual_out = token_usage.get("output_tokens", estimated_output) if token_usage else estimated_output
-            ctx.budget_guard.commit(actual_in, actual_out, model_name)
+            ctx.budget_guard.commit(actual_in, actual_out, model_name, estimated_input, estimated_output)
 
         return {"content": content}, token_usage
     except asyncio.TimeoutError:
         cb.record_failure()
+        if budget_reserved:
+            ctx.budget_guard.release(estimated_input, estimated_output, model_name)
         logger.warning(f"Timeout querying {model_name} after {MODEL_TIMEOUT}s")
         return None, None
     except Exception as e:
         cb.record_failure()
+        if budget_reserved:
+            ctx.budget_guard.release(estimated_input, estimated_output, model_name)
         logger.error(f"Error querying {model_name}: {e}")
         return None, None
 
@@ -173,9 +181,35 @@ async def query_models_parallel(
 
     start_time = time.time()
 
+    # Map tasks to model names for safe lookup on cancellation
+    task_to_model: dict[asyncio.Task, str] = {
+        task: config.get("name", "unknown") for task, config in zip(tasks, model_configs, strict=True)
+    }
+
     while pending_tasks:
-        # Wait for either soft_timeout or some tasks to complete
-        remaining_time = max(0, soft_timeout - (time.time() - start_time))
+        elapsed = time.time() - start_time
+        remaining_time = soft_timeout - elapsed
+
+        if remaining_time <= 0:
+            # Soft timeout expired — check if we have enough responses
+            successful_responses = sum(1 for r in completed_results.values() if r is not None)
+            if successful_responses >= min_responses:
+                # Cancel remaining and break
+                skipped_models = [task_to_model.get(t, "unknown") for t in pending_tasks]
+                for task in pending_tasks:
+                    task.cancel()
+                if skipped_models:
+                    logger.warning(
+                        f"Soft timeout ({soft_timeout}s) reached with {successful_responses} responses. "
+                        f"Skipping models: {', '.join(skipped_models)}"
+                    )
+                for model_name in skipped_models:
+                    completed_results[model_name] = None
+                    token_usages[model_name] = None
+                break
+            else:
+                # Not enough responses yet — wait for next completion without timeout
+                remaining_time = None
 
         done, pending = await asyncio.wait(
             pending_tasks,
@@ -190,43 +224,10 @@ async def query_models_parallel(
             token_usages[name] = token_usage
             pending_tasks.discard(task)
 
-        # Check if we've reached soft timeout and have minimum responses
-        elapsed = time.time() - start_time
-        successful_responses = sum(1 for r in completed_results.values() if r is not None)
-
-        if elapsed >= soft_timeout and successful_responses >= min_responses:
-            # Cancel remaining tasks
-            skipped_models = []
-            for task in pending_tasks:
-                task.cancel()
-                # Try to get the model name from the task
-                try:
-                    # Extract model name from the config that was passed to safe_query
-                    # This is a bit hacky but works for logging purposes
-                    config_idx = tasks.index(task)
-                    model_name = model_configs[config_idx].get("name", "unknown")
-                    skipped_models.append(model_name)
-                except (ValueError, IndexError):
-                    skipped_models.append("unknown")
-
-            if skipped_models:
-                logger.warning(
-                    f"Soft timeout ({soft_timeout}s) reached with {successful_responses} responses. "
-                    f"Skipping models: {', '.join(skipped_models)}"
-                )
-
-            # Add None entries for cancelled tasks
-            for model_name in skipped_models:
-                completed_results[model_name] = None
-                token_usages[model_name] = None
-
-            break
-
-        # If no more pending tasks, we're done
         if not pending_tasks:
             break
 
-    # Wait for any remaining tasks to complete (shouldn't happen but be safe)
+    # Wait for any remaining cancelled tasks to settle
     if pending_tasks:
         await asyncio.gather(*pending_tasks, return_exceptions=True)
 
@@ -240,6 +241,8 @@ async def stage1_collect_responses(
 ) -> tuple[list[Stage1Result], dict[str, dict[str, Any] | None]]:
     """Stage 1: Collect individual responses from all council models.
 
+    Checks the local cache first; only queries models with cache misses.
+
     Returns:
         Tuple of (stage1_results, token_usages)
     """
@@ -251,25 +254,70 @@ async def stage1_collect_responses(
 
     messages = [{"role": "user", "content": user_query}]
 
-    # Query all models in parallel
-    responses, token_usages = await query_models_parallel(council_models, messages, ctx)
+    # Check cache for each model
+    cached_responses: dict[str, dict[str, Any] | None] = {}
+    cached_usages: dict[str, dict[str, Any] | None] = {}
+    models_to_query: list[dict[str, Any]] = []
 
-    # Format results
+    for model_config in council_models:
+        model_name = model_config.get("name", "unknown")
+        model_id = model_config.get("model_id", model_config.get("bot_name", ""))
+        if ctx.cache is not None:
+            hit = ctx.cache.get(user_query, model_name, model_id)
+            if hit is not None:
+                response_text, token_usage = hit
+                cached_responses[model_name] = {"content": response_text}
+                cached_usages[model_name] = token_usage
+                logger.info(f"Cache hit for {model_name}")
+                if progress:
+                    await progress.update_model(model_name, ModelStatus.DONE, 0.0)
+                continue
+        models_to_query.append(model_config)
+
+    # Query uncached models in parallel
+    if models_to_query:
+        responses, token_usages = await query_models_parallel(models_to_query, messages, ctx)
+    else:
+        responses, token_usages = {}, {}
+
+    # Store new responses in cache
+    if ctx.cache is not None:
+        for model_config in models_to_query:
+            model_name = model_config.get("name", "unknown")
+            model_id = model_config.get("model_id", model_config.get("bot_name", ""))
+            response = responses.get(model_name)
+            if response is not None:
+                ctx.cache.put(
+                    user_query,
+                    model_name,
+                    model_id,
+                    response.get("content", ""),
+                    token_usages.get(model_name),
+                )
+
+    # Merge cached + fresh responses
+    all_responses = {**cached_responses, **responses}
+    all_usages = {**cached_usages, **token_usages}
+
+    # Format results in original config order (not completion order)
     stage1_results: list[Stage1Result] = []
-    for model_name, response in responses.items():
+    for model_config in council_models:
+        model_name = model_config.get("name", "unknown")
+        response = all_responses.get(model_name)
         if response is not None:
             stage1_results.append(Stage1Result(model=model_name, response=response.get("content", "")))
 
     if progress:
-        await progress.complete_stage(f"{len(stage1_results)}/{len(council_models)} responses")
+        cache_hits = len(cached_responses)
+        suffix = f" ({cache_hits} cached)" if cache_hits else ""
+        await progress.complete_stage(f"{len(stage1_results)}/{len(council_models)} responses{suffix}")
 
-    return stage1_results, token_usages
+    return stage1_results, all_usages
 
 
 def build_ranking_prompt(
     question: str,
     responses: list[tuple[str, str]],
-    labels: list[str],
     response_order: list[int] | None = None,
 ) -> str:
     """Construct the prompt for peer ranking with anonymized responses.
@@ -277,7 +325,6 @@ def build_ranking_prompt(
     Args:
         question: The original user question
         responses: List of (model_name, response_text) tuples
-        labels: List of single-character labels (A, B, C...)
         response_order: Optional list of indices for response ordering.
                        If None, uses original order.
 
@@ -408,19 +455,21 @@ async def stage2_collect_rankings(
         per_ranker_label_mappings[ranker_name] = label_to_model
 
         # Build the ranking prompt with randomized order
-        ranking_prompt = build_ranking_prompt(user_query, filtered_responses, labels, response_order)
+        ranking_prompt = build_ranking_prompt(user_query, filtered_responses, response_order)
 
         messages = [{"role": "user", "content": ranking_prompt}]
 
-        # Store context for potential retries
+        # Store context for potential retries (with flags suppressed)
         ranker_task_context[ranker_name] = {
-            "model_config": ranker_model,
+            "model_config": {**ranker_model, "_skip_flags": True},
             "messages": messages,
             "num_responses": len(filtered_responses),
         }
 
+        # Suppress provider flags (web_search, reasoning_effort) for ranking queries
+        ranker_config = {**ranker_model, "_skip_flags": True}
         ranking_tasks.append(
-            _get_ranking(ranker_model, messages, ranker_name, len(filtered_responses), ctx, system_message)
+            _get_ranking(ranker_config, messages, ranker_name, len(filtered_responses), ctx, system_message)
         )
 
     # Execute all ranking tasks in parallel
@@ -604,9 +653,10 @@ async def stage3_synthesize_final(
 
     messages = [{"role": "user", "content": chairman_prompt}]
 
-    # Query the chairman model with system message
+    # Query the chairman model with system message (suppress provider flags for synthesis)
+    chairman_query_config = {**chairman_config, "_skip_flags": True}
     start = time.time()
-    response, token_usage = await query_model(chairman_config, messages, ctx, system_message)
+    response, token_usage = await query_model(chairman_query_config, messages, ctx, system_message)
     elapsed = time.time() - start
 
     if progress:

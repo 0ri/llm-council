@@ -11,6 +11,7 @@ import asyncio
 from dataclasses import dataclass, field
 
 from .budget import BudgetGuard
+from .cache import ResponseCache
 from .cost import CouncilCostTracker
 from .progress import ProgressManager
 from .providers import CircuitBreaker, Provider
@@ -37,6 +38,7 @@ class CouncilContext:
     cost_tracker: CouncilCostTracker = field(default_factory=CouncilCostTracker)
     budget_guard: BudgetGuard | None = None
     progress: ProgressManager = field(default_factory=ProgressManager)
+    cache: ResponseCache | None = None
 
     # ------------------------------------------------------------------
     # Lazy accessor helpers
@@ -70,11 +72,13 @@ class CouncilContext:
         return self.providers[provider_name]
 
     async def close(self) -> None:
-        """Close all providers that support cleanup."""
+        """Close all providers and the cache."""
         for provider in self.providers.values():
             close = getattr(provider, "close", None)
             if close is not None and asyncio.iscoroutinefunction(close):
                 await close()
+        if self.cache is not None:
+            self.cache.close()
 
     def get_circuit_breaker(self, identifier: str) -> CircuitBreaker:
         """Return a cached circuit breaker for *identifier*, creating it lazily."""

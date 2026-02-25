@@ -62,8 +62,9 @@ class PoeProvider:
 
         # Extract model-specific parameters
         bot_name = model_config["bot_name"]
-        web_search = model_config.get("web_search", False)
-        reasoning_effort = model_config.get("reasoning_effort")
+        skip_flags = model_config.get("_skip_flags", False)
+        web_search = False if skip_flags else model_config.get("web_search", False)
+        reasoning_effort = None if skip_flags else model_config.get("reasoning_effort")
 
         # Parse the messages and system message from config
         messages = model_config.get("_messages", [{"role": "user", "content": prompt}])

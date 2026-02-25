@@ -54,7 +54,7 @@ def format_anonymized_responses(
     return "\n\n".join(parts)
 
 
-def sanitize_user_input(text: str, max_length: int = 50000) -> str:
+def sanitize_user_input(text: str, max_length: int = 500000) -> str:
     """Sanitize user input before embedding in prompts.
 
     Strips control characters (preserving newlines/tabs), truncates to max_length,

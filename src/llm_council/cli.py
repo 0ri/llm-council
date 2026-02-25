@@ -203,7 +203,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dry-run", dest="dry_run", action="store_true", help="Preview config and costs, no API calls")
     parser.add_argument("--list-models", dest="list_models", action="store_true", help="List available models and exit")
     parser.add_argument("--flatten", dest="flatten", metavar="PATH", help="Flatten a directory and prepend to question")
+    parser.add_argument("--question-file", dest="question_file", metavar="FILE", help="Read question from file")
     parser.add_argument("--seed", type=int, default=None, help="Seed for reproducible bootstrap confidence intervals")
+    parser.add_argument("--no-cache", dest="no_cache", action="store_true", help="Disable local response cache")
     return parser
 
 
@@ -218,10 +220,17 @@ def main():
         asyncio.run(_list_available_models())
         return
 
-    if not args.question:
-        parser.error("No question provided")
-
-    question = args.question
+    # Read question from file if --question-file is given
+    if args.question_file:
+        try:
+            with open(args.question_file) as f:
+                question = f.read()
+        except Exception as e:
+            parser.error(f"Cannot read question file: {e}")
+    elif args.question:
+        question = args.question
+    else:
+        parser.error("No question provided (use positional arg or --question-file)")
 
     # Setup logging
     setup_logging(verbose=args.verbose)
@@ -268,6 +277,7 @@ def main():
             log_dir=args.log_dir,
             max_stage=args.stage,
             seed=args.seed,
+            use_cache=not args.no_cache,
         )
     )
 
