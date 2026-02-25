@@ -38,6 +38,20 @@ def _reset_global_state():
 
 
 @pytest.fixture
+def mock_ctx():
+    """Create a CouncilContext with mock settings for testing."""
+    from llm_council.context import CouncilContext
+    from llm_council.cost import CouncilCostTracker
+    from llm_council.progress import ProgressManager
+
+    return CouncilContext(
+        poe_api_key="test-key",
+        cost_tracker=CouncilCostTracker(),
+        progress=ProgressManager(is_tty=False),
+    )
+
+
+@pytest.fixture
 def sample_config():
     """Valid council configuration for testing."""
     return {

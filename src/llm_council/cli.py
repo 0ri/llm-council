@@ -92,7 +92,7 @@ def main():
     args = sys.argv[1:]
 
     if not args:
-        print('Usage: council.py [--config CONFIG_PATH] [-v|--verbose] [--manifest] "question"', file=sys.stderr)
+        print('Usage: council.py [--config CONFIG_PATH] [-v|--verbose] [--manifest] [--log-dir DIR] "question"', file=sys.stderr)
         sys.exit(1)
 
     # Handle flags
@@ -100,6 +100,7 @@ def main():
     question = None
     verbose = False
     print_manifest = False
+    log_dir = None
 
     i = 0
     while i < len(args):
@@ -112,6 +113,9 @@ def main():
         elif args[i] == "--manifest":
             print_manifest = True
             i += 1
+        elif args[i] == "--log-dir" and i + 1 < len(args):
+            log_dir = args[i + 1]
+            i += 2
         else:
             question = args[i]
             i += 1
@@ -135,7 +139,7 @@ def main():
         sys.exit(1)
 
     # Run council
-    result = asyncio.run(run_council(question, config, print_manifest=print_manifest))
+    result = asyncio.run(run_council(question, config, print_manifest=print_manifest, log_dir=log_dir))
 
     # Output result
     print(result)

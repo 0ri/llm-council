@@ -8,6 +8,25 @@ from typing import Any
 
 logger = logging.getLogger("llm-council")
 
+try:
+    import tiktoken
+    _ENCODER = tiktoken.get_encoding("cl100k_base")
+    HAS_TIKTOKEN = True
+except ImportError:
+    _ENCODER = None
+    HAS_TIKTOKEN = False
+
+
+def estimate_tokens(text: str) -> int:
+    """Estimate token count for text.
+
+    Uses tiktoken cl100k_base encoding when available.
+    Falls back to 4 chars/token heuristic.
+    """
+    if HAS_TIKTOKEN and _ENCODER is not None:
+        return len(_ENCODER.encode(text))
+    return len(text) // 4
+
 
 @dataclass
 class ModelUsage:
@@ -60,14 +79,13 @@ class CouncilCostTracker:
         """
         input_chars = len(input_text)
         output_chars = len(output_text)
-        # Rough estimate: ~4 chars per token for English text
         usage = ModelUsage(
             model_name=model_name,
             stage=stage,
             input_chars=input_chars,
             output_chars=output_chars,
-            estimated_input_tokens=input_chars // 4,
-            estimated_output_tokens=output_chars // 4,
+            estimated_input_tokens=estimate_tokens(input_text),
+            estimated_output_tokens=estimate_tokens(output_text),
             actual_input_tokens=actual_input_tokens,
             actual_output_tokens=actual_output_tokens,
         )

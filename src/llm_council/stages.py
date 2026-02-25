@@ -9,6 +9,7 @@ import secrets
 import time
 from typing import Any
 
+from .context import CouncilContext
 from .models import Stage1Result, Stage2Result, Stage3Result
 from .parsing import parse_ranking_from_text
 from .progress import ModelStatus, ProgressManager
@@ -18,7 +19,7 @@ from .prompts import (
     SYNTHESIS_PROMPT_TEMPLATE,
     SYNTHESIS_SYSTEM_MESSAGE_TEMPLATE,
 )
-from .providers import MODEL_TIMEOUT, get_circuit_breaker, get_provider, get_semaphore
+from .providers import MODEL_TIMEOUT
 from .security import build_manipulation_resistance_msg, format_anonymized_responses
 
 logger = logging.getLogger("llm-council")
@@ -27,7 +28,7 @@ logger = logging.getLogger("llm-council")
 async def query_model(
     model_config: dict[str, Any],
     messages: list[dict[str, str]],
-    poe_api_key: str | None = None,
+    ctx: CouncilContext,
     system_message: str | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     """Query a model through its provider, with timeout.
@@ -38,7 +39,7 @@ async def query_model(
             - web_search: bool (Poe web search)
             - reasoning_effort: str (Poe reasoning level)
         messages: List of message dicts
-        poe_api_key: Poe API key (required for poe provider)
+        ctx: CouncilContext providing providers, circuit breakers, semaphore
         system_message: Optional system message for injection hardening
 
     Returns:
@@ -55,7 +56,7 @@ async def query_model(
         cb_key = f"{provider_name}:{model_name}"
 
     # Check circuit breaker
-    cb = get_circuit_breaker(cb_key)
+    cb = ctx.get_circuit_breaker(cb_key)
     if cb.is_open:
         logger.warning(f"Circuit breaker open for {cb_key}, skipping {model_name}")
         return None, None
@@ -66,8 +67,8 @@ async def query_model(
     config_with_context["_system_message"] = system_message
 
     try:
-        provider = get_provider(provider_name, poe_api_key)
-        sem = get_semaphore()
+        provider = ctx.get_provider(provider_name)
+        sem = ctx.get_semaphore()
         async with sem:
             result = await asyncio.wait_for(
                 provider.query("", config_with_context, MODEL_TIMEOUT),
@@ -94,9 +95,9 @@ async def query_model(
 async def query_models_parallel(
     model_configs: list[dict[str, Any]],
     messages: list[dict[str, str]],
-    poe_api_key: str | None = None,
+    ctx: CouncilContext,
+    *,
     system_message: str | None = None,
-    progress: ProgressManager | None = None,
     min_responses: int | None = None,
     soft_timeout: float = 120.0,
 ) -> tuple[dict[str, dict[str, Any] | None], dict[str, dict[str, Any] | None]]:
@@ -105,15 +106,16 @@ async def query_models_parallel(
     Args:
         model_configs: List of model config dicts
         messages: Messages to send to each model
-        poe_api_key: Poe API key
+        ctx: CouncilContext providing providers, circuit breakers, semaphore, progress
         system_message: Optional system message for injection hardening
-        progress: Optional progress manager for live status updates
         min_responses: Minimum responses needed to proceed (default: len(models)-1 or 2)
         soft_timeout: Time to wait before proceeding with min_responses (default: 120s)
 
     Returns:
         Tuple of (response dict, token usage dict) where both map model name to values
     """
+    progress = ctx.progress
+
     # Calculate default min_responses if not provided
     if min_responses is None:
         min_responses = min(2, max(1, len(model_configs) - 1))
@@ -124,7 +126,7 @@ async def query_models_parallel(
         if progress:
             await progress.update_model(name, ModelStatus.QUERYING)
         try:
-            result, token_usage = await query_model(config, messages, poe_api_key, system_message)
+            result, token_usage = await query_model(config, messages, ctx, system_message)
             elapsed = time.time() - start
             if progress:
                 await progress.update_model(
@@ -213,14 +215,15 @@ async def query_models_parallel(
 async def stage1_collect_responses(
     user_query: str,
     council_models: list[dict[str, Any]],
-    poe_api_key: str | None,
-    progress: ProgressManager | None = None,
+    ctx: CouncilContext,
 ) -> tuple[list[Stage1Result], dict[str, dict[str, Any] | None]]:
     """Stage 1: Collect individual responses from all council models.
 
     Returns:
         Tuple of (stage1_results, token_usages)
     """
+    progress = ctx.progress
+
     if progress:
         model_names = [m.get("name", "unknown") for m in council_models]
         await progress.start_stage(1, "Collecting responses", model_names)
@@ -228,7 +231,7 @@ async def stage1_collect_responses(
     messages = [{"role": "user", "content": user_query}]
 
     # Query all models in parallel
-    responses, token_usages = await query_models_parallel(council_models, messages, poe_api_key, progress=progress)
+    responses, token_usages = await query_models_parallel(council_models, messages, ctx)
 
     # Format results
     stage1_results: list[Stage1Result] = []
@@ -281,29 +284,57 @@ def build_ranking_prompt(
     return ranking_prompt
 
 
+async def _get_ranking(
+    model_config: dict[str, Any],
+    messages: list[dict[str, str]],
+    ranker_name: str,
+    num_responses: int,
+    ctx: CouncilContext,
+    system_message: str,
+) -> tuple[Stage2Result | None, dict[str, Any] | None]:
+    """Execute a single ranking query and parse the result."""
+    response, token_usage = await query_model(model_config, messages, ctx, system_message)
+    if response is not None:
+        full_text = response.get("content", "")
+        parsed_ranking, is_valid = parse_ranking_from_text(full_text, num_responses=num_responses)
+        return Stage2Result(
+            model=ranker_name,
+            ranking=full_text,
+            parsed_ranking=parsed_ranking,
+            is_valid_ballot=is_valid,
+        ), token_usage
+    return None, None
+
+
 async def stage2_collect_rankings(
     user_query: str,
     stage1_results: list[Stage1Result] | list[dict[str, Any]],
     council_models: list[dict[str, Any]],
-    poe_api_key: str | None,
-    progress: ProgressManager | None = None,
+    ctx: CouncilContext,
+    stage2_max_retries: int | None = None,
 ) -> tuple[list[Stage2Result], dict[str, dict[str, str]], dict[str, dict[str, Any] | None]]:
     """Stage 2: Each model ranks the anonymized responses.
 
     Uses injection hardening: fenced blocks + system message + structured JSON output.
     Implements self-exclusion and response order randomization.
+    Invalid ballots are retried up to stage2_max_retries times.
 
     Args:
         user_query: The user's question
         stage1_results: List of Stage1 results (can be Stage1Result or dict for backwards compatibility)
         council_models: List of council model configs
-        poe_api_key: Optional Poe API key
-        progress: Optional progress manager
+        ctx: CouncilContext providing providers, circuit breakers, semaphore, progress
+        stage2_max_retries: Maximum retries for invalid ballots (default: ctx.stage2_max_retries)
 
     Returns:
         Tuple of (stage2_results, per_ranker_label_mappings, token_usages)
         where per_ranker_label_mappings is {ranker_name: {label: model_name}}
     """
+    if stage2_max_retries is None:
+        stage2_max_retries = ctx.stage2_max_retries
+
+    progress = ctx.progress
+
     if progress:
         model_names = [m.get("name", "unknown") for m in council_models]
         await progress.start_stage(2, f"Peer ranking ({len(stage1_results)} responses)", model_names)
@@ -322,6 +353,9 @@ async def stage2_collect_rankings(
 
     # Store per-ranker label mappings for proper aggregation
     per_ranker_label_mappings: dict[str, dict[str, str]] = {}
+
+    # Store per-ranker task context for reuse during retries
+    ranker_task_context: dict[str, dict[str, Any]] = {}
 
     # Prepare ranking tasks for each model
     ranking_tasks = []
@@ -366,21 +400,16 @@ async def stage2_collect_rankings(
 
         messages = [{"role": "user", "content": ranking_prompt}]
 
-        # Create async task for this ranker
-        async def get_ranking(model_config, msgs, ranker, num_resp):
-            response, token_usage = await query_model(model_config, msgs, poe_api_key, system_message)
-            if response is not None:
-                full_text = response.get("content", "")
-                parsed_ranking, is_valid = parse_ranking_from_text(full_text, num_responses=num_resp)
-                return Stage2Result(
-                    model=ranker,
-                    ranking=full_text,
-                    parsed_ranking=parsed_ranking,
-                    is_valid_ballot=is_valid,
-                ), token_usage
-            return None, None
+        # Store context for potential retries
+        ranker_task_context[ranker_name] = {
+            "model_config": ranker_model,
+            "messages": messages,
+            "num_responses": len(filtered_responses),
+        }
 
-        ranking_tasks.append(get_ranking(ranker_model, messages, ranker_name, len(filtered_responses)))
+        ranking_tasks.append(
+            _get_ranking(ranker_model, messages, ranker_name, len(filtered_responses), ctx, system_message)
+        )
 
     # Execute all ranking tasks in parallel
     if progress:
@@ -404,6 +433,62 @@ async def stage2_collect_rankings(
                     elapsed = time.time() - start_times[ranking_data.model]
                     status = ModelStatus.DONE if ranking_data.is_valid_ballot else ModelStatus.FAILED
                     await progress.update_model(ranking_data.model, status, elapsed)
+
+    # Retry loop for invalid ballots
+    for retry_round in range(stage2_max_retries):
+        invalid_indices = [i for i, r in enumerate(stage2_results) if not r.is_valid_ballot]
+        if not invalid_indices:
+            break
+
+        logger.info(
+            f"Stage 2 retry round {retry_round + 1}/{stage2_max_retries}: "
+            f"retrying {len(invalid_indices)} invalid ballot(s)"
+        )
+
+        retry_tasks = []
+        retry_indices: list[int] = []
+
+        for idx in invalid_indices:
+            ranker_name = stage2_results[idx].model
+            task_ctx = ranker_task_context.get(ranker_name)
+            if task_ctx is None:
+                continue
+
+            logger.info(f"Retrying ranking for {ranker_name}")
+            if progress:
+                await progress.update_model(ranker_name, ModelStatus.QUERYING)
+
+            retry_tasks.append(
+                _get_ranking(
+                    task_ctx["model_config"],
+                    task_ctx["messages"],
+                    ranker_name,
+                    task_ctx["num_responses"],
+                    ctx,
+                    system_message,
+                )
+            )
+            retry_indices.append(idx)
+
+        if not retry_tasks:
+            break
+
+        retry_results = await asyncio.gather(*retry_tasks)
+
+        for retry_idx, retry_result in zip(retry_indices, retry_results):
+            if retry_result is not None:
+                ranking_data, token_usage = retry_result
+                if ranking_data is not None:
+                    if ranking_data.is_valid_ballot:
+                        logger.info(f"Retry succeeded for {ranking_data.model}")
+                    else:
+                        logger.info(f"Retry still invalid for {ranking_data.model}")
+                    stage2_results[retry_idx] = ranking_data
+                    token_usages[ranking_data.model] = token_usage
+                    if progress:
+                        elapsed = time.time() - start_times.get(ranking_data.model, time.time())
+                        status = ModelStatus.DONE if ranking_data.is_valid_ballot else ModelStatus.FAILED
+                        await progress.update_model(ranking_data.model, status, elapsed)
 
     if progress:
         valid = sum(1 for r in stage2_results if r.is_valid_ballot)
@@ -464,8 +549,7 @@ async def stage3_synthesize_final(
     label_to_model: dict[str, str],
     aggregate_rankings: list[dict[str, Any]],
     chairman_config: dict[str, Any],
-    poe_api_key: str | None,
-    progress: ProgressManager | None = None,
+    ctx: CouncilContext,
 ) -> tuple[Stage3Result, dict[str, Any] | None]:
     """Stage 3: Chairman synthesizes final response.
 
@@ -478,12 +562,12 @@ async def stage3_synthesize_final(
         label_to_model: Label to model mapping
         aggregate_rankings: Aggregate rankings
         chairman_config: Chairman model config
-        poe_api_key: Optional Poe API key
-        progress: Optional progress manager
+        ctx: CouncilContext providing providers, circuit breakers, semaphore, progress
 
     Returns:
         Tuple of (result, token usage dict or None)
     """
+    progress = ctx.progress
     chairman_name = chairman_config.get("name", "Chairman")
 
     if progress:
@@ -516,7 +600,7 @@ async def stage3_synthesize_final(
 
     # Query the chairman model with system message
     start = time.time()
-    response, token_usage = await query_model(chairman_config, messages, poe_api_key, system_message)
+    response, token_usage = await query_model(chairman_config, messages, ctx, system_message)
     elapsed = time.time() - start
 
     if progress:

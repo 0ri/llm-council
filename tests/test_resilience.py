@@ -1,6 +1,10 @@
 """Tests for resilience features: circuit breaker, semaphore, cost tracking."""
 
-from llm_council.cost import CouncilCostTracker
+from unittest.mock import patch
+
+import pytest
+
+from llm_council.cost import CouncilCostTracker, estimate_tokens, HAS_TIKTOKEN
 from llm_council.providers import CircuitBreaker, get_circuit_breaker, reset_circuit_breakers
 
 
@@ -89,9 +93,28 @@ class TestCostTracker:
         assert "Stage 3" in summary
 
     def test_token_estimation(self):
-        tracker = CouncilCostTracker()
-        # 400 chars input, 800 chars output -> ~100 in, ~200 out tokens
-        tracker.record("Model-A", 1, "x" * 400, "y" * 800)
-        assert tracker.total_input_tokens == 100
-        assert tracker.total_output_tokens == 200
-        assert tracker.total_tokens == 300
+        with patch("llm_council.cost.HAS_TIKTOKEN", False):
+            tracker = CouncilCostTracker()
+            # 400 chars input, 800 chars output -> ~100 in, ~200 out tokens (fallback)
+            tracker.record("Model-A", 1, "x" * 400, "y" * 800)
+            assert tracker.total_input_tokens == 100
+            assert tracker.total_output_tokens == 200
+            assert tracker.total_tokens == 300
+
+    def test_estimate_tokens_with_tiktoken(self):
+        if not HAS_TIKTOKEN:
+            pytest.skip("tiktoken not installed")
+        # Known string: "Hello, world!" should give a reasonable token count
+        count = estimate_tokens("Hello, world!")
+        assert 1 <= count <= 10
+        # Empty string should produce zero tokens
+        assert estimate_tokens("") == 0
+
+    def test_estimate_tokens_fallback(self):
+        with patch("llm_council.cost.HAS_TIKTOKEN", False):
+            # Fallback: len("abcd") // 4 = 1
+            assert estimate_tokens("abcd") == 1
+            # 400 chars -> 100 tokens
+            assert estimate_tokens("x" * 400) == 100
+            # Empty string -> 0
+            assert estimate_tokens("") == 0

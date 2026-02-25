@@ -4,10 +4,23 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from llm_council.context import CouncilContext
+from llm_council.cost import CouncilCostTracker
+from llm_council.progress import ProgressManager
+
 try:
     from llm_council.stages import build_ranking_prompt, stage2_collect_rankings
 except ImportError:
     from council import build_ranking_prompt, stage2_collect_rankings
+
+
+def _make_ctx() -> CouncilContext:
+    """Create a CouncilContext suitable for unit tests."""
+    return CouncilContext(
+        poe_api_key="test-key",
+        cost_tracker=CouncilCostTracker(),
+        progress=ProgressManager(is_tty=False),
+    )
 
 
 def unpack_stage2_result(result):
@@ -112,7 +125,8 @@ class TestStage2CollectRankings:
 
             mock_query.side_effect = mock_query_response
 
-            result = await stage2_collect_rankings(user_query, stage1_results, council_models, None)
+            ctx = _make_ctx()
+            result = await stage2_collect_rankings(user_query, stage1_results, council_models, ctx)
             stage2_results, per_ranker_mappings = unpack_stage2_result(result)
 
             # Check that each ranker got a mapping without themselves
@@ -178,7 +192,8 @@ class TestStage2CollectRankings:
 
             random.seed(42)
 
-            result = await stage2_collect_rankings(user_query, stage1_results, council_models, None)
+            ctx = _make_ctx()
+            result = await stage2_collect_rankings(user_query, stage1_results, council_models, ctx)
             stage2_results, per_ranker_mappings = unpack_stage2_result(result)
 
             # Check that models received different prompts (due to randomization)
@@ -219,7 +234,8 @@ class TestStage2CollectRankings:
 
             mock_query.side_effect = mock_query_response
 
-            result = await stage2_collect_rankings(user_query, stage1_results, council_models, None)
+            ctx = _make_ctx()
+            result = await stage2_collect_rankings(user_query, stage1_results, council_models, ctx)
             stage2_results, per_ranker_mappings = unpack_stage2_result(result)
 
             # Each ranker should only have one response to rank
@@ -245,10 +261,185 @@ class TestStage2CollectRankings:
             # This shouldn't be called since M1 has no one else to rank
             mock_query.side_effect = AsyncMock(return_value=({"content": "Should not be called"}, None))
 
-            result = await stage2_collect_rankings(user_query, stage1_results, council_models, None)
+            ctx = _make_ctx()
+            result = await stage2_collect_rankings(user_query, stage1_results, council_models, ctx)
             stage2_results, per_ranker_mappings = unpack_stage2_result(result)
 
             # No rankings should be performed
             assert len(stage2_results) == 0
             assert "M1" not in per_ranker_mappings  # M1 had nothing to rank
             mock_query.assert_not_called()
+
+
+class TestStage2QualityGate:
+    """Tests for Stage 2 ballot retry (quality gate) logic."""
+
+    @pytest.mark.asyncio
+    async def test_retry_invalid_ballot(self):
+        """Invalid ballot on first call should be retried and succeed on second call."""
+        user_query = "What is AI?"
+        stage1_results = [
+            {"model": "Model1", "response": "AI is artificial intelligence"},
+            {"model": "Model2", "response": "AI stands for artificial intelligence"},
+            {"model": "Model3", "response": "Artificial Intelligence"},
+        ]
+        council_models = [
+            {"name": "Model1", "provider": "bedrock", "model_id": "test1"},
+            {"name": "Model2", "provider": "bedrock", "model_id": "test2"},
+            {"name": "Model3", "provider": "bedrock", "model_id": "test3"},
+        ]
+
+        call_counts: dict[str, int] = {}
+
+        with patch("llm_council.stages.query_model") as mock_query:
+
+            async def mock_query_response(model_config, messages, *args, **kwargs):
+                name = model_config.get("name", "unknown")
+                call_counts[name] = call_counts.get(name, 0) + 1
+
+                if name == "Model2" and call_counts[name] == 1:
+                    return {"content": "This is garbage that cannot be parsed as a ranking."}, None
+
+                return {
+                    "content": '```json\n{"ranking": ["Response A", "Response B"]}\n```'
+                }, None
+
+            mock_query.side_effect = mock_query_response
+
+            ctx = _make_ctx()
+            result = await stage2_collect_rankings(
+                user_query, stage1_results, council_models, ctx, stage2_max_retries=1
+            )
+            stage2_results, per_ranker_mappings = unpack_stage2_result(result)
+
+            assert call_counts["Model2"] == 2
+
+            model2_result = [r for r in stage2_results if r.model == "Model2"][0]
+            assert model2_result.is_valid_ballot is True
+
+    @pytest.mark.asyncio
+    async def test_no_retry_when_all_valid(self):
+        """No extra calls should be made when all ballots are valid on first try."""
+        user_query = "What is AI?"
+        stage1_results = [
+            {"model": "Model1", "response": "AI is artificial intelligence"},
+            {"model": "Model2", "response": "AI stands for artificial intelligence"},
+            {"model": "Model3", "response": "Artificial Intelligence"},
+        ]
+        council_models = [
+            {"name": "Model1", "provider": "bedrock", "model_id": "test1"},
+            {"name": "Model2", "provider": "bedrock", "model_id": "test2"},
+            {"name": "Model3", "provider": "bedrock", "model_id": "test3"},
+        ]
+
+        call_counts: dict[str, int] = {}
+
+        with patch("llm_council.stages.query_model") as mock_query:
+
+            async def mock_query_response(model_config, messages, *args, **kwargs):
+                name = model_config.get("name", "unknown")
+                call_counts[name] = call_counts.get(name, 0) + 1
+                return {
+                    "content": '```json\n{"ranking": ["Response A", "Response B"]}\n```'
+                }, None
+
+            mock_query.side_effect = mock_query_response
+
+            ctx = _make_ctx()
+            result = await stage2_collect_rankings(
+                user_query, stage1_results, council_models, ctx, stage2_max_retries=2
+            )
+            stage2_results, per_ranker_mappings = unpack_stage2_result(result)
+
+            for name in ["Model1", "Model2", "Model3"]:
+                assert call_counts[name] == 1, f"{name} was called {call_counts[name]} times, expected 1"
+
+            for r in stage2_results:
+                assert r.is_valid_ballot is True
+
+    @pytest.mark.asyncio
+    async def test_retry_exhausted_keeps_invalid(self):
+        """After max retries, an always-failing model should keep is_valid_ballot=False."""
+        user_query = "What is AI?"
+        stage1_results = [
+            {"model": "Model1", "response": "AI is artificial intelligence"},
+            {"model": "Model2", "response": "AI stands for artificial intelligence"},
+            {"model": "Model3", "response": "Artificial Intelligence"},
+        ]
+        council_models = [
+            {"name": "Model1", "provider": "bedrock", "model_id": "test1"},
+            {"name": "Model2", "provider": "bedrock", "model_id": "test2"},
+            {"name": "Model3", "provider": "bedrock", "model_id": "test3"},
+        ]
+
+        call_counts: dict[str, int] = {}
+
+        with patch("llm_council.stages.query_model") as mock_query:
+
+            async def mock_query_response(model_config, messages, *args, **kwargs):
+                name = model_config.get("name", "unknown")
+                call_counts[name] = call_counts.get(name, 0) + 1
+
+                if name == "Model2":
+                    return {"content": "Completely unparseable garbage text."}, None
+
+                return {
+                    "content": '```json\n{"ranking": ["Response A", "Response B"]}\n```'
+                }, None
+
+            mock_query.side_effect = mock_query_response
+
+            max_retries = 3
+            ctx = _make_ctx()
+            result = await stage2_collect_rankings(
+                user_query, stage1_results, council_models, ctx, stage2_max_retries=max_retries
+            )
+            stage2_results, per_ranker_mappings = unpack_stage2_result(result)
+
+            assert call_counts["Model2"] == 1 + max_retries
+
+            model2_result = [r for r in stage2_results if r.model == "Model2"][0]
+            assert model2_result.is_valid_ballot is False
+
+    @pytest.mark.asyncio
+    async def test_retry_disabled_with_zero(self):
+        """When stage2_max_retries=0, no retries should happen even with invalid ballots."""
+        user_query = "What is AI?"
+        stage1_results = [
+            {"model": "Model1", "response": "AI is artificial intelligence"},
+            {"model": "Model2", "response": "AI stands for artificial intelligence"},
+            {"model": "Model3", "response": "Artificial Intelligence"},
+        ]
+        council_models = [
+            {"name": "Model1", "provider": "bedrock", "model_id": "test1"},
+            {"name": "Model2", "provider": "bedrock", "model_id": "test2"},
+            {"name": "Model3", "provider": "bedrock", "model_id": "test3"},
+        ]
+
+        call_counts: dict[str, int] = {}
+
+        with patch("llm_council.stages.query_model") as mock_query:
+
+            async def mock_query_response(model_config, messages, *args, **kwargs):
+                name = model_config.get("name", "unknown")
+                call_counts[name] = call_counts.get(name, 0) + 1
+
+                if name == "Model2":
+                    return {"content": "Completely unparseable garbage text."}, None
+
+                return {
+                    "content": '```json\n{"ranking": ["Response A", "Response B"]}\n```'
+                }, None
+
+            mock_query.side_effect = mock_query_response
+
+            ctx = _make_ctx()
+            result = await stage2_collect_rankings(
+                user_query, stage1_results, council_models, ctx, stage2_max_retries=0
+            )
+            stage2_results, per_ranker_mappings = unpack_stage2_result(result)
+
+            assert call_counts["Model2"] == 1
+
+            model2_result = [r for r in stage2_results if r.model == "Model2"][0]
+            assert model2_result.is_valid_ballot is False

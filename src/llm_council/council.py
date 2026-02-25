@@ -6,12 +6,14 @@ import logging
 import os
 import sys
 import time
+import uuid
 from typing import Any
 
 from pydantic import ValidationError
 
 from .aggregation import calculate_aggregate_rankings
 from .budget import BudgetExceededError, create_budget_guard
+from .context import CouncilContext
 from .cost import CouncilCostTracker
 from .formatting import format_output
 from .manifest import RunManifest
@@ -136,13 +138,21 @@ def validate_config(config: dict) -> list[str]:
     return unique_errors
 
 
-async def run_council(question: str, config: dict[str, Any], print_manifest: bool = False) -> str:
+async def run_council(
+    question: str,
+    config: dict[str, Any],
+    print_manifest: bool = False,
+    log_dir: str | None = None,
+    context_factory: Any = None,
+) -> str:
     """Run the full 3-stage council process.
 
     Args:
         question: The question to ask the council
         config: Council configuration dict
         print_manifest: If True, print manifest JSON to stderr
+        log_dir: If set, write JSONL run logs to this directory
+        context_factory: Optional callable returning a CouncilContext (for testing)
 
     Returns:
         Formatted council output string
@@ -161,25 +171,41 @@ async def run_council(question: str, config: dict[str, Any], print_manifest: boo
     # Sanitize user input
     question = sanitize_user_input(question)
 
+    # Generate run_id early so RunLogger and RunManifest share the same ID
+    run_id = str(uuid.uuid4())
+
+    # Set up optional JSONL persistence
+    run_logger = None
+    if log_dir:
+        from .persistence import RunLogger
+
+        run_logger = RunLogger(log_dir, run_id)
+        run_logger.log_config(question, config)
+
     council_models = config.get("council_models", [])
     chairman_config = config.get("chairman", {})
-    poe_api_key = os.environ.get("POE_API_KEY")
 
-    progress = ProgressManager()
+    # Create the per-run context
+    if context_factory:
+        ctx = context_factory()
+    else:
+        ctx = CouncilContext(
+            poe_api_key=os.environ.get("POE_API_KEY"),
+            cost_tracker=CouncilCostTracker(),
+            budget_guard=create_budget_guard(config),
+            progress=ProgressManager(),
+            stage2_max_retries=config.get("stage2_retries", 1),
+        )
 
-    cost_tracker = CouncilCostTracker()
-
-    # Create budget guard if configured
-    budget_guard = create_budget_guard(config)
-    if budget_guard:
-        max_tokens_str = str(budget_guard.max_tokens) if budget_guard.max_tokens else "unlimited"
-        max_cost_str = str(budget_guard.max_cost_usd) if budget_guard.max_cost_usd else "unlimited"
+    if ctx.budget_guard:
+        max_tokens_str = str(ctx.budget_guard.max_tokens) if ctx.budget_guard.max_tokens else "unlimited"
+        max_cost_str = str(ctx.budget_guard.max_cost_usd) if ctx.budget_guard.max_cost_usd else "unlimited"
         logger.info(f"Budget limits: {max_tokens_str} tokens, ${max_cost_str}")
 
     try:
         logger.info("Stage 1: Collecting responses from council...")
         stage1_results, stage1_token_usages = await stage1_collect_responses(
-            question, council_models, poe_api_key, progress=progress
+            question, council_models, ctx
         )
 
         if not stage1_results:
@@ -187,15 +213,18 @@ async def run_council(question: str, config: dict[str, Any], print_manifest: boo
 
         logger.info(f"Stage 1 complete: {len(stage1_results)} responses collected")
 
+        if run_logger:
+            run_logger.log_stage1(stage1_results, stage1_token_usages)
+
         # Record stage 1 token usage with actual counts when available
         for result in stage1_results:
             model_name = result.model
             token_usage = stage1_token_usages.get(model_name)
-            cost_tracker.record_with_usage(model_name, 1, question, result.response, token_usage)
+            ctx.cost_tracker.record_with_usage(model_name, 1, question, result.response, token_usage)
 
         logger.info("Stage 2: Collecting peer rankings...")
         stage2_results, per_ranker_label_mappings, stage2_token_usages = await stage2_collect_rankings(
-            question, stage1_results, council_models, poe_api_key, progress=progress
+            question, stage1_results, council_models, ctx
         )
 
         logger.info(f"Stage 2 complete: {len(stage2_results)} rankings collected")
@@ -204,7 +233,10 @@ async def run_council(question: str, config: dict[str, Any], print_manifest: boo
         for result in stage2_results:
             model_name = result.model
             token_usage = stage2_token_usages.get(model_name)
-            cost_tracker.record_with_usage(model_name, 2, "[ranking prompt]", result.ranking, token_usage)
+            ctx.cost_tracker.record_with_usage(model_name, 2, "[ranking prompt]", result.ranking, token_usage)
+
+        if run_logger:
+            run_logger.log_stage2(stage2_results, per_ranker_label_mappings, stage2_token_usages)
 
         # Calculate aggregate rankings with ballot validity tracking
         aggregate_rankings, valid_ballots, total_ballots = calculate_aggregate_rankings(
@@ -212,6 +244,9 @@ async def run_council(question: str, config: dict[str, Any], print_manifest: boo
         )
 
         logger.info(f"Valid ballots: {valid_ballots}/{total_ballots}")
+
+        if run_logger:
+            run_logger.log_aggregation(aggregate_rankings, valid_ballots, total_ballots)
 
         # For stage 3, create a unified label mapping (using the first ranker's mapping for consistency)
         # This is needed because the chairman needs a single view of the anonymized labels
@@ -230,27 +265,32 @@ async def run_council(question: str, config: dict[str, Any], print_manifest: boo
             label_to_model,
             aggregate_rankings,
             chairman_config,
-            poe_api_key,
-            progress=progress,
+            ctx,
         )
 
         logger.info("Stage 3 complete!")
 
+        if run_logger:
+            run_logger.log_stage3(stage3_result, stage3_token_usage)
+
         # Record stage 3 token usage with actual counts when available
-        cost_tracker.record_with_usage(
+        ctx.cost_tracker.record_with_usage(
             stage3_result.model, 3, "[synthesis prompt]", stage3_result.response, stage3_token_usage
         )
 
-        logger.info(cost_tracker.summary())
+        logger.info(ctx.cost_tracker.summary())
 
         # Log budget usage if configured
-        if budget_guard:
-            logger.info(budget_guard.summary())
+        if ctx.budget_guard:
+            logger.info(ctx.budget_guard.summary())
 
         total_elapsed = time.time() - start_time
-        await progress.complete_council(total_elapsed)
+        await ctx.progress.complete_council(total_elapsed)
 
-        # Create run manifest
+        if run_logger:
+            run_logger.log_summary(ctx.cost_tracker.summary(), total_elapsed)
+
+        # Create run manifest (use the same run_id generated earlier)
         manifest = RunManifest.create(
             question=question,
             config=config,
@@ -258,8 +298,9 @@ async def run_council(question: str, config: dict[str, Any], print_manifest: boo
             valid_ballots=valid_ballots,
             total_ballots=total_ballots,
             elapsed_seconds=total_elapsed,
-            estimated_tokens=cost_tracker.total_tokens,
+            estimated_tokens=ctx.cost_tracker.total_tokens,
         )
+        manifest.run_id = run_id
 
         # Print manifest to stderr if requested
         if print_manifest:
@@ -276,4 +317,4 @@ async def run_council(question: str, config: dict[str, Any], print_manifest: boo
         logger.error(f"Budget exceeded: {e}")
         return f"Error: Budget limit exceeded - {e}"
     finally:
-        await progress._cleanup()
+        await ctx.progress._cleanup()

@@ -26,8 +26,10 @@
     }
   ],
   "chairman": {
-    "name": "Claude Opus 4.6",
+    "name": "Gemini-3.1-Pro",
     "provider": "poe",
-    "bot_name": "Claude-3.5-Opus"
+    "bot_name": "Gemini-3.1-Pro",
+    "web_search": true,
+    "reasoning_effort": "high"
   }
 }

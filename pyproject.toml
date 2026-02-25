@@ -12,6 +12,7 @@ dependencies = [
     "boto3>=1.34",
     "tenacity>=8.2",
     "rich>=13.0",
+    "tiktoken>=0.7",
 ]
 
 [project.optional-dependencies]

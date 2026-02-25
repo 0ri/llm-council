@@ -5,14 +5,27 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-try:
-    from llm_council.council import run_council
+from llm_council.context import CouncilContext
+from llm_council.cost import CouncilCostTracker
+from llm_council.council import run_council
+from llm_council.progress import ProgressManager
 
-    _PATCH_TARGET = "llm_council.stages.get_provider"
-except ImportError:
-    from council import run_council
 
-    _PATCH_TARGET = "council.get_provider"
+def _make_ctx_factory(mock_provider):
+    """Return a context_factory callable that injects *mock_provider*."""
+
+    def factory():
+        ctx = CouncilContext(
+            poe_api_key="test-key",
+            cost_tracker=CouncilCostTracker(),
+            progress=ProgressManager(is_tty=False),
+        )
+        # Pre-inject the mock provider for both provider names
+        ctx.providers["poe"] = mock_provider
+        ctx.providers["bedrock"] = mock_provider
+        return ctx
+
+    return factory
 
 
 class TestRunCouncilIntegration:
@@ -42,12 +55,15 @@ class TestRunCouncilIntegration:
                 call_count["stage"] += 1
                 return "The council has deliberated. Response A was ranked highest."
 
+        mock_provider = MagicMock()
+        mock_provider.query = mock_query
+
         with patch.dict(os.environ, {"POE_API_KEY": "test-key"}):
-            with patch(_PATCH_TARGET) as mock_get_provider:
-                mock_provider = MagicMock()
-                mock_provider.query = mock_query
-                mock_get_provider.return_value = mock_provider
-                result = await run_council("What is the meaning of life?", sample_config)
+            result = await run_council(
+                "What is the meaning of life?",
+                sample_config,
+                context_factory=_make_ctx_factory(mock_provider),
+            )
 
         assert "## LLM Council Response" in result
         assert "Model Rankings" in result
@@ -66,11 +82,14 @@ class TestRunCouncilIntegration:
                 return f"Response from {name}"
             return '```json\n{"ranking": ["Response A", "Response C"]}\n```'
 
+        mock_provider = MagicMock()
+        mock_provider.query = mock_query
+
         with patch.dict(os.environ, {"POE_API_KEY": "test-key"}):
-            with patch(_PATCH_TARGET) as mock_get_provider:
-                mock_provider = MagicMock()
-                mock_provider.query = mock_query
-                mock_get_provider.return_value = mock_provider
-                result = await run_council("Test question", sample_config)
+            result = await run_council(
+                "Test question",
+                sample_config,
+                context_factory=_make_ctx_factory(mock_provider),
+            )
 
         assert "LLM Council Response" in result or "Error" in result

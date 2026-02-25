@@ -5,12 +5,23 @@ from unittest.mock import patch
 
 import pytest
 
+from llm_council.context import CouncilContext
 from llm_council.cost import CouncilCostTracker
 from llm_council.manifest import RunManifest
+from llm_council.progress import ProgressManager
 from llm_council.providers import get_circuit_breaker, reset_circuit_breakers
 from llm_council.providers.bedrock import is_retryable_bedrock_error
 from llm_council.providers.poe import is_retryable_poe_error
 from llm_council.stages import query_models_parallel
+
+
+def _make_ctx() -> CouncilContext:
+    """Create a CouncilContext suitable for unit tests."""
+    return CouncilContext(
+        poe_api_key="test-key",
+        cost_tracker=CouncilCostTracker(),
+        progress=ProgressManager(is_tty=False),
+    )
 
 
 class TestManifest:
@@ -180,23 +191,24 @@ class TestActualTokenCounting:
 
     def test_cost_tracker_with_actual_tokens(self):
         """Test that actual tokens are preferred over estimates."""
-        tracker = CouncilCostTracker()
+        with patch("llm_council.cost.HAS_TIKTOKEN", False):
+            tracker = CouncilCostTracker()
 
-        # Record with actual token counts
-        tracker.record("Model-A", 1, "x" * 400, "y" * 800, actual_input_tokens=120, actual_output_tokens=210)
+            # Record with actual token counts
+            tracker.record("Model-A", 1, "x" * 400, "y" * 800, actual_input_tokens=120, actual_output_tokens=210)
 
-        # Record with only estimates
-        tracker.record("Model-B", 1, "x" * 400, "y" * 800)
+            # Record with only estimates
+            tracker.record("Model-B", 1, "x" * 400, "y" * 800)
 
-        # Model-A should use actual counts
-        model_a_usage = tracker.usages[0]
-        assert model_a_usage.input_tokens == 120
-        assert model_a_usage.output_tokens == 210
+            # Model-A should use actual counts
+            model_a_usage = tracker.usages[0]
+            assert model_a_usage.input_tokens == 120
+            assert model_a_usage.output_tokens == 210
 
-        # Model-B should use estimates
-        model_b_usage = tracker.usages[1]
-        assert model_b_usage.input_tokens == 100  # 400/4
-        assert model_b_usage.output_tokens == 200  # 800/4
+            # Model-B should use estimates (fallback: chars // 4)
+            model_b_usage = tracker.usages[1]
+            assert model_b_usage.input_tokens == 100  # 400/4
+            assert model_b_usage.output_tokens == 200  # 800/4
 
     def test_cost_tracker_record_with_usage(self):
         """Test record_with_usage helper method."""
@@ -216,16 +228,17 @@ class TestActualTokenCounting:
 
     def test_cost_summary_with_mixed_tokens(self):
         """Test summary output with mixed actual/estimated tokens."""
-        tracker = CouncilCostTracker()
+        with patch("llm_council.cost.HAS_TIKTOKEN", False):
+            tracker = CouncilCostTracker()
 
-        # Stage 1: one with actual, one estimated
-        tracker.record("Model-A", 1, "q", "a", actual_input_tokens=10, actual_output_tokens=20)
-        tracker.record("Model-B", 1, "q" * 40, "a" * 80)  # ~10 in, ~20 out
+            # Stage 1: one with actual, one estimated
+            tracker.record("Model-A", 1, "q", "a", actual_input_tokens=10, actual_output_tokens=20)
+            tracker.record("Model-B", 1, "q" * 40, "a" * 80)  # ~10 in, ~20 out (fallback)
 
-        summary = tracker.summary()
-        assert "Model-A: 10 in, 20 out" in summary  # No ~ for actuals
-        assert "Model-B: ~10 in, ~20 out" in summary  # ~ for estimates
-        assert "(~ indicates estimated tokens, actual counts used where available)" in summary
+            summary = tracker.summary()
+            assert "Model-A: 10 in, 20 out" in summary  # No ~ for actuals
+            assert "Model-B: ~10 in, ~20 out" in summary  # ~ for estimates
+            assert "(~ indicates estimated tokens, actual counts used where available)" in summary
 
 
 class TestAggressiveTimeout:
@@ -242,7 +255,7 @@ class TestAggressiveTimeout:
         ]
 
         # Mock query_model to return quickly for first model, slowly for others
-        async def mock_query_model(config, messages, api_key, system_message):
+        async def mock_query_model(config, messages, ctx, system_message):
             name = config["name"]
             if name == "Fast-Model":
                 await asyncio.sleep(0.1)
@@ -253,9 +266,11 @@ class TestAggressiveTimeout:
                 return {"content": "slow response"}, None
 
         with patch("llm_council.stages.query_model", side_effect=mock_query_model):
+            ctx = _make_ctx()
             results, usages = await query_models_parallel(
                 model_configs,
                 [{"role": "user", "content": "test"}],
+                ctx,
                 min_responses=1,
                 soft_timeout=0.5,
             )
@@ -276,14 +291,16 @@ class TestAggressiveTimeout:
             {"name": "Model-B", "provider": "poe", "bot_name": "b"},
         ]
 
-        async def mock_query_model(config, messages, api_key, system_message):
+        async def mock_query_model(config, messages, ctx, system_message):
             await asyncio.sleep(0.1)
             return {"content": f"response from {config['name']}"}, None
 
         with patch("llm_council.stages.query_model", side_effect=mock_query_model):
+            ctx = _make_ctx()
             results, usages = await query_models_parallel(
                 model_configs,
                 [{"role": "user", "content": "test"}],
+                ctx,
                 soft_timeout=5.0,  # Long timeout
             )
 
@@ -298,7 +315,7 @@ class TestAggressiveTimeout:
         model_configs = [{"name": f"Model-{i}", "provider": "poe", "bot_name": f"bot-{i}"} for i in range(4)]
 
         # Mock only 3 models to respond quickly
-        async def mock_query_model(config, messages, api_key, system_message):
+        async def mock_query_model(config, messages, ctx, system_message):
             name = config["name"]
             if name != "Model-3":
                 await asyncio.sleep(0.1)
@@ -308,9 +325,11 @@ class TestAggressiveTimeout:
                 return {"content": "slow"}, None
 
         with patch("llm_council.stages.query_model", side_effect=mock_query_model):
+            ctx = _make_ctx()
             results, usages = await query_models_parallel(
                 model_configs,
                 [{"role": "user", "content": "test"}],
+                ctx,
                 soft_timeout=0.5,
                 # min_responses not specified, should default to 3
             )

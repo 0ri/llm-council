@@ -34,6 +34,7 @@ class Provider(typing.Protocol):
 _semaphore: asyncio.Semaphore | None = None
 
 
+# Deprecated: use CouncilContext instead
 def get_semaphore(max_concurrent: int = 4) -> asyncio.Semaphore:
     """Get or create a semaphore for limiting concurrent provider calls."""
     global _semaphore
@@ -42,6 +43,7 @@ def get_semaphore(max_concurrent: int = 4) -> asyncio.Semaphore:
     return _semaphore
 
 
+# Deprecated: use CouncilContext instead
 def reset_semaphore() -> None:
     """Reset the semaphore (for testing)."""
     global _semaphore
@@ -92,6 +94,7 @@ class CircuitBreaker:
 _circuit_breakers: dict[str, CircuitBreaker] = {}
 
 
+# Deprecated: use CouncilContext instead
 def get_circuit_breaker(identifier: str) -> CircuitBreaker:
     """Get or create a circuit breaker for *identifier*.
 
@@ -104,6 +107,7 @@ def get_circuit_breaker(identifier: str) -> CircuitBreaker:
     return _circuit_breakers[identifier]
 
 
+# Deprecated: use CouncilContext instead
 def reset_circuit_breakers() -> None:
     """Reset all circuit breakers (for testing)."""
     _circuit_breakers.clear()
@@ -116,6 +120,7 @@ def reset_circuit_breakers() -> None:
 _providers: dict[str, Provider] = {}
 
 
+# Deprecated: use CouncilContext instead
 def get_provider(provider_name: str, api_key: str | None = None) -> Provider:
     """Get or create a provider instance."""
     if provider_name not in _providers:
@@ -130,6 +135,7 @@ def get_provider(provider_name: str, api_key: str | None = None) -> Provider:
     return _providers[provider_name]
 
 
+# Deprecated: use CouncilContext instead
 def reset_providers() -> None:
     """Clear the provider registry (useful for testing)."""
     _providers.clear()
