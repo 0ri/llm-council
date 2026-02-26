@@ -29,3 +29,8 @@ frontend/.vite/
 htmlcov/
 .coverage
 .pytest_cache/
+.hypothesis/
+
+# IDE / tool state
+.kiro/
+.DS_Store
