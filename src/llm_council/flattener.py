@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import ast
 import mimetypes
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -172,10 +174,149 @@ def _load_gitignore(directory: Path) -> list[str]:
     return patterns
 
 
+def _extract_python_skeleton(content: str) -> str | None:
+    """Extract structural skeleton from Python source using AST.
+
+    Returns function/class signatures, imports, constants, and docstrings
+    without implementation bodies.
+    """
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return None
+
+    lines: list[str] = []
+
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            lines.append(ast.get_source_segment(content, node) or ast.unparse(node))
+
+        elif isinstance(node, ast.Assign):
+            # Module-level constants/assignments
+            segment = ast.get_source_segment(content, node)
+            if segment and len(segment) < 200:
+                lines.append(segment)
+
+        elif isinstance(node, ast.AnnAssign):
+            segment = ast.get_source_segment(content, node)
+            if segment and len(segment) < 200:
+                lines.append(segment)
+
+        elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            lines.append(_format_funcdef(node, content))
+
+        elif isinstance(node, ast.ClassDef):
+            lines.append(_format_classdef(node, content))
+
+    return "\n\n".join(lines) if lines else None
+
+
+def _format_funcdef(node: ast.FunctionDef | ast.AsyncFunctionDef, source: str, indent: str = "") -> str:
+    """Format a function definition as signature + first-line docstring."""
+    parts: list[str] = []
+
+    # Decorators
+    for dec in node.decorator_list:
+        dec_text = ast.get_source_segment(source, dec) or ast.unparse(dec)
+        parts.append(f"{indent}@{dec_text}")
+
+    prefix = "async def" if isinstance(node, ast.AsyncFunctionDef) else "def"
+    args = ast.get_source_segment(source, node.args) or ast.unparse(node.args)
+    ret = ""
+    if node.returns:
+        ret_text = ast.get_source_segment(source, node.returns) or ast.unparse(node.returns)
+        ret = f" -> {ret_text}"
+
+    parts.append(f"{indent}{prefix} {node.name}({args}){ret}:")
+
+    # First line of docstring
+    docstring = ast.get_docstring(node)
+    if docstring:
+        first_line = docstring.split("\n")[0].strip()
+        parts.append(f'{indent}    """{first_line}"""')
+    else:
+        parts.append(f"{indent}    ...")
+
+    return "\n".join(parts)
+
+
+def _format_classdef(node: ast.ClassDef, source: str, indent: str = "") -> str:
+    """Format a class definition with method signatures."""
+    parts: list[str] = []
+
+    # Decorators
+    for dec in node.decorator_list:
+        dec_text = ast.get_source_segment(source, dec) or ast.unparse(dec)
+        parts.append(f"{indent}@{dec_text}")
+
+    bases = ", ".join(ast.get_source_segment(source, b) or ast.unparse(b) for b in node.bases)
+    bases_str = f"({bases})" if bases else ""
+    parts.append(f"{indent}class {node.name}{bases_str}:")
+
+    # Class docstring
+    docstring = ast.get_docstring(node)
+    if docstring:
+        first_line = docstring.split("\n")[0].strip()
+        parts.append(f'{indent}    """{first_line}"""')
+
+    # Class-level assignments and method signatures
+    child_indent = indent + "    "
+    has_body = False
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, ast.Assign):
+            segment = ast.get_source_segment(source, child)
+            if segment and len(segment) < 200:
+                parts.append(f"{child_indent}{segment.strip()}")
+                has_body = True
+        elif isinstance(child, ast.AnnAssign):
+            segment = ast.get_source_segment(source, child)
+            if segment and len(segment) < 200:
+                parts.append(f"{child_indent}{segment.strip()}")
+                has_body = True
+        elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            parts.append("")
+            parts.append(_format_funcdef(child, source, indent=child_indent))
+            has_body = True
+
+    if not has_body:
+        parts.append(f"{child_indent}...")
+
+    return "\n".join(parts)
+
+
+# Patterns for non-Python structural lines
+_STRUCTURE_PATTERNS = re.compile(
+    r"^\s*(?:"
+    r"(?:export\s+)?(?:default\s+)?(?:abstract\s+)?(?:async\s+)?(?:function|class|interface|type|enum|struct|trait|impl|mod|pub\s+fn|fn|def|const|let|var|static)\s+"
+    r"|(?:export\s+)?(?:const|let|var)\s+\w+\s*[=:]"
+    r"|(?:import|from|require|use|package|module)\s+"
+    r"|#\[|@\w+"
+    r")",
+    re.MULTILINE,
+)
+
+
+def _extract_generic_skeleton(content: str) -> str:
+    """Extract structural lines from non-Python files using heuristics."""
+    lines = content.splitlines()
+    result: list[str] = []
+
+    # Always include first 3 non-empty lines for context
+    non_empty = [l for l in lines[:10] if l.strip()][:3]
+    result.extend(non_empty)
+
+    for line in lines:
+        if _STRUCTURE_PATTERNS.match(line) and line not in result:
+            result.append(line)
+
+    return "\n".join(result) if result else content[:500]
+
+
 def flatten_directory(
     path: str | Path,
     respect_gitignore: bool = True,
     max_file_size: int = 100_000,
+    codemap: bool = False,
 ) -> FlattenedProject:
     """Flatten a directory into a single markdown document.
 
@@ -183,6 +324,9 @@ def flatten_directory(
         path: Path to the directory to flatten.
         respect_gitignore: If True, respect .gitignore patterns.
         max_file_size: Skip files larger than this many bytes.
+        codemap: If True, extract only structural skeletons (signatures,
+            imports, class/function definitions) instead of full file contents.
+            Uses AST parsing for Python; heuristic pattern matching for others.
 
     Returns:
         FlattenedProject with the flattened markdown and metadata.
@@ -252,9 +396,30 @@ def flatten_directory(
                 continue
 
             ext = filepath.suffix.lstrip(".")
-            sections.append(f"## {rel_path}\n\n```{ext}\n{content}\n```\n")
-            file_count += 1
-            total_chars += len(content)
+
+            if codemap:
+                # Extract structural skeleton
+                if ext == "py":
+                    skeleton = _extract_python_skeleton(content)
+                    if skeleton:
+                        sections.append(f"## {rel_path}\n\n```{ext}\n{skeleton}\n```\n")
+                        file_count += 1
+                        total_chars += len(skeleton)
+                    else:
+                        # Fallback for unparseable Python
+                        fallback = _extract_generic_skeleton(content)
+                        sections.append(f"## {rel_path}\n\n```{ext}\n{fallback}\n```\n")
+                        file_count += 1
+                        total_chars += len(fallback)
+                else:
+                    skeleton = _extract_generic_skeleton(content)
+                    sections.append(f"## {rel_path}\n\n```{ext}\n{skeleton}\n```\n")
+                    file_count += 1
+                    total_chars += len(skeleton)
+            else:
+                sections.append(f"## {rel_path}\n\n```{ext}\n{content}\n```\n")
+                file_count += 1
+                total_chars += len(content)
 
     markdown = "\n".join(sections)
     tokens = estimate_tokens(markdown) if markdown else 0
@@ -275,6 +440,7 @@ def main() -> None:
 
     # Parse flags
     no_gitignore = False
+    use_codemap = False
     max_size = 100_000
     paths: list[str] = []
 
@@ -282,6 +448,9 @@ def main() -> None:
     while i < len(args):
         if args[i] == "--no-gitignore":
             no_gitignore = True
+            i += 1
+        elif args[i] == "--codemap":
+            use_codemap = True
             i += 1
         elif args[i] == "--max-file-size" and i + 1 < len(args):
             try:
@@ -292,19 +461,19 @@ def main() -> None:
             i += 2
         elif args[i].startswith("-"):
             print(f"Unknown flag: {args[i]}", file=sys.stderr)
-            print("Usage: flatten-project [--no-gitignore] [--max-file-size BYTES] PATH [PATH ...]", file=sys.stderr)
+            print("Usage: flatten-project [--no-gitignore] [--codemap] [--max-file-size BYTES] PATH [PATH ...]", file=sys.stderr)
             sys.exit(1)
         else:
             paths.append(args[i])
             i += 1
 
     if not paths:
-        print("Usage: flatten-project [--no-gitignore] [--max-file-size BYTES] PATH [PATH ...]", file=sys.stderr)
+        print("Usage: flatten-project [--no-gitignore] [--codemap] [--max-file-size BYTES] PATH [PATH ...]", file=sys.stderr)
         sys.exit(1)
 
     for path in paths:
         try:
-            result = flatten_directory(path, respect_gitignore=not no_gitignore, max_file_size=max_size)
+            result = flatten_directory(path, respect_gitignore=not no_gitignore, max_file_size=max_size, codemap=use_codemap)
         except (FileNotFoundError, NotADirectoryError) as e:
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)

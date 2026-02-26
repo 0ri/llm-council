@@ -203,6 +203,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dry-run", dest="dry_run", action="store_true", help="Preview config and costs, no API calls")
     parser.add_argument("--list-models", dest="list_models", action="store_true", help="List available models and exit")
     parser.add_argument("--flatten", dest="flatten", metavar="PATH", help="Flatten a directory and prepend to question")
+    parser.add_argument("--codemap", dest="codemap", action="store_true", help="With --flatten: extract structural skeleton (signatures, imports, classes) instead of full contents (~90%% fewer tokens)")
     parser.add_argument("--question-file", dest="question_file", metavar="FILE", help="Read question from file")
     parser.add_argument("--seed", type=int, default=None, help="Seed for reproducible bootstrap confidence intervals")
     parser.add_argument("--no-cache", dest="no_cache", action="store_true", help="Disable local response cache")
@@ -255,7 +256,7 @@ def main():
     if args.flatten:
         from .flattener import flatten_directory
 
-        flattened = flatten_directory(args.flatten)
+        flattened = flatten_directory(args.flatten, codemap=getattr(args, "codemap", False))
         print(
             f"Flattened {flattened.file_count} files (est. ~{flattened.estimated_tokens:,} tokens)",
             file=sys.stderr,

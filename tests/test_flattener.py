@@ -219,6 +219,150 @@ class TestSkipDirectories:
             assert ".git" not in result.markdown
 
 
+class TestCodemapMode:
+    """Test codemap (structural skeleton) extraction."""
+
+    def test_codemap_extracts_function_signatures(self):
+        """Test that codemap mode extracts function signatures without bodies."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "app.py").write_text(
+                'def hello(name: str) -> str:\n    """Greet someone."""\n    return f"Hello {name}"\n\n'
+                'def add(a: int, b: int) -> int:\n    """Add two numbers."""\n    result = a + b\n    return result\n'
+            )
+
+            result = flatten_directory(tmpdir, codemap=True)
+
+            assert result.file_count == 1
+            assert "def hello(name: str) -> str:" in result.markdown
+            assert "def add(a: int, b: int) -> int:" in result.markdown
+            assert '"""Greet someone."""' in result.markdown
+            # Implementation details should NOT appear
+            assert 'return f"Hello {name}"' not in result.markdown
+            assert "result = a + b" not in result.markdown
+
+    def test_codemap_extracts_classes(self):
+        """Test that codemap extracts class definitions with method signatures."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "models.py").write_text(
+                "class User:\n"
+                '    """A user model."""\n'
+                "    name: str\n"
+                "    age: int\n\n"
+                "    def validate(self) -> bool:\n"
+                '        """Check if valid."""\n'
+                "        return len(self.name) > 0 and self.age > 0\n"
+            )
+
+            result = flatten_directory(tmpdir, codemap=True)
+
+            assert "class User:" in result.markdown
+            assert "def validate(self) -> bool:" in result.markdown
+            assert '"""A user model."""' in result.markdown
+            # Implementation should NOT appear
+            assert "len(self.name)" not in result.markdown
+
+    def test_codemap_extracts_imports(self):
+        """Test that codemap preserves import statements."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "app.py").write_text(
+                "import os\nfrom pathlib import Path\n\ndef main():\n    pass\n"
+            )
+
+            result = flatten_directory(tmpdir, codemap=True)
+
+            assert "import os" in result.markdown
+            assert "from pathlib import Path" in result.markdown
+
+    def test_codemap_extracts_constants(self):
+        """Test that codemap preserves module-level constants."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "config.py").write_text(
+                'MAX_RETRIES = 3\nDEFAULT_TIMEOUT = 30\nBASE_URL = "https://api.example.com"\n'
+            )
+
+            result = flatten_directory(tmpdir, codemap=True)
+
+            assert "MAX_RETRIES = 3" in result.markdown
+            assert "DEFAULT_TIMEOUT = 30" in result.markdown
+
+    def test_codemap_much_smaller_than_full(self):
+        """Test that codemap produces significantly fewer tokens than full flatten."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Write a file with substantial implementation
+            (Path(tmpdir) / "big.py").write_text(
+                "import os\nimport sys\n\n"
+                "def process(data: list[str]) -> dict:\n"
+                '    """Process the data."""\n'
+                "    result = {}\n"
+                "    for item in data:\n"
+                "        key = item.split(':')[0]\n"
+                "        value = item.split(':')[1]\n"
+                "        result[key] = value.strip()\n"
+                "        if not result[key]:\n"
+                "            del result[key]\n"
+                "    return result\n\n"
+                "def validate(data: dict) -> bool:\n"
+                '    """Validate the data."""\n'
+                "    for key, value in data.items():\n"
+                "        if not isinstance(key, str):\n"
+                "            return False\n"
+                "        if not isinstance(value, str):\n"
+                "            return False\n"
+                "    return True\n"
+            )
+
+            full = flatten_directory(tmpdir, codemap=False)
+            codemap = flatten_directory(tmpdir, codemap=True)
+
+            assert codemap.total_chars < full.total_chars
+            # Codemap should be significantly smaller
+            assert codemap.total_chars < full.total_chars * 0.6
+
+    def test_codemap_non_python_files(self):
+        """Test codemap heuristic extraction for non-Python files."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "app.ts").write_text(
+                'import { Router } from "express";\n\n'
+                "export interface User {\n  name: string;\n  age: number;\n}\n\n"
+                "export function createUser(name: string, age: number): User {\n"
+                "  const user = { name, age };\n"
+                "  return user;\n}\n\n"
+                "const DEFAULT_PORT = 3000;\n"
+            )
+
+            result = flatten_directory(tmpdir, codemap=True)
+
+            assert result.file_count == 1
+            assert "import" in result.markdown
+            assert "interface User" in result.markdown or "export function" in result.markdown
+
+    def test_codemap_with_decorators(self):
+        """Test that codemap preserves decorators."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "routes.py").write_text(
+                "from flask import Flask\n\napp = Flask(__name__)\n\n"
+                '@app.route("/hello")\n'
+                "def hello() -> str:\n"
+                '    """Say hello."""\n'
+                '    return "Hello, World!"\n'
+            )
+
+            result = flatten_directory(tmpdir, codemap=True)
+
+            assert "@app.route" in result.markdown
+            assert "def hello() -> str:" in result.markdown
+            assert 'return "Hello, World!"' not in result.markdown
+
+    def test_codemap_false_is_default(self):
+        """Test that codemap=False (default) gives full content."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "app.py").write_text("def foo():\n    return 42\n")
+
+            result = flatten_directory(tmpdir)
+
+            assert "return 42" in result.markdown
+
+
 class TestSkipFiles:
     """Test file skipping patterns."""
 
