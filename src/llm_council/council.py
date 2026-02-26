@@ -221,7 +221,11 @@ async def run_council(
 
     try:
         logger.info("Stage 1: Collecting responses from council...")
-        stage1_results, stage1_token_usages = await stage1_collect_responses(question, council_models, ctx)
+        stage1_results, stage1_token_usages = await stage1_collect_responses(
+            question, council_models, ctx,
+            soft_timeout=config.get("soft_timeout"),
+            min_responses=config.get("min_responses"),
+        )
 
         if not stage1_results:
             return "Error: All models failed to respond. Please check your API credentials."

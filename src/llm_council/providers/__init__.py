@@ -13,10 +13,13 @@ from .poe import PoeProvider
 DEFAULT_REGION = "us-east-1"
 DEFAULT_MAX_TOKENS = 16000
 DEFAULT_TIMEOUT = 360
+DEFAULT_SOFT_TIMEOUT = 300
 DEFAULT_MAX_RETRIES = 2
 
 # Timeout for individual model queries (seconds)
 MODEL_TIMEOUT = DEFAULT_TIMEOUT
+# Soft timeout for parallel queries before proceeding with partial results
+SOFT_TIMEOUT = DEFAULT_SOFT_TIMEOUT
 # Number of retry attempts for transient failures
 MAX_RETRIES = DEFAULT_MAX_RETRIES
 
@@ -70,6 +73,7 @@ __all__ = [
     "DEFAULT_TIMEOUT",
     "MAX_RETRIES",
     "MODEL_TIMEOUT",
+    "SOFT_TIMEOUT",
     "OpenRouterProvider",
     "Provider",
     "PoeProvider",
