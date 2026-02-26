@@ -69,12 +69,21 @@ class ProgressManager:
         self._spinner_idx = 0
         self._spinner_chars = ["\u280b", "\u2819", "\u2839", "\u2838", "\u283c", "\u2834", "\u2826", "\u2827"]
 
+        self._shutdown_called: bool = False
+
         if self.is_tty:
             self._console = Console(stderr=True)
             self._live: Live | None = None
         else:
             self._console = None
             self._live = None
+
+    async def shutdown(self) -> None:
+        """Public shutdown method. Idempotent — safe to call multiple times."""
+        if self._shutdown_called:
+            return
+        self._shutdown_called = True
+        await self._cleanup()
 
     async def start_stage(self, stage: int, description: str, models: list[str]):
         """Begin a new stage, initializing model tracking."""
