@@ -21,7 +21,7 @@ from .prompts import (
     SYNTHESIS_PROMPT_TEMPLATE,
     SYNTHESIS_SYSTEM_MESSAGE_TEMPLATE,
 )
-from .providers import MODEL_TIMEOUT
+from .providers import MODEL_TIMEOUT, SOFT_TIMEOUT
 from .security import build_manipulation_resistance_msg, format_anonymized_responses, sanitize_model_output
 
 logger = logging.getLogger("llm-council")
@@ -128,7 +128,7 @@ async def query_models_parallel(
     *,
     system_message: str | None = None,
     min_responses: int | None = None,
-    soft_timeout: float = 120.0,
+    soft_timeout: float | None = None,
 ) -> tuple[dict[str, dict[str, Any] | None], dict[str, dict[str, Any] | None]]:
     """Query multiple models in parallel via hybrid providers.
 
@@ -137,17 +137,20 @@ async def query_models_parallel(
         messages: Messages to send to each model
         ctx: CouncilContext providing providers, circuit breakers, semaphore, progress
         system_message: Optional system message for injection hardening
-        min_responses: Minimum responses needed to proceed (default: len(models)-1 or 2)
-        soft_timeout: Time to wait before proceeding with min_responses (default: 120s)
+        min_responses: Minimum responses needed to proceed (default: all models)
+        soft_timeout: Time to wait before proceeding with min_responses (default: SOFT_TIMEOUT=300s)
 
     Returns:
         Tuple of (response dict, token usage dict) where both map model name to values
     """
     progress = ctx.progress
 
-    # Calculate default min_responses if not provided
+    # Default: wait for all models (was min(2, n-1) which dropped slow models)
     if min_responses is None:
-        min_responses = min(2, max(1, len(model_configs) - 1))
+        min_responses = len(model_configs)
+    # Default soft_timeout from provider config
+    if soft_timeout is None:
+        soft_timeout = float(SOFT_TIMEOUT)
 
     async def safe_query(config: dict[str, Any]) -> tuple[str, dict[str, Any] | None, dict[str, Any] | None]:
         name = config.get("name", "unknown")
@@ -238,6 +241,9 @@ async def stage1_collect_responses(
     user_query: str,
     council_models: list[dict[str, Any]],
     ctx: CouncilContext,
+    *,
+    soft_timeout: float | None = None,
+    min_responses: int | None = None,
 ) -> tuple[list[Stage1Result], dict[str, dict[str, Any] | None]]:
     """Stage 1: Collect individual responses from all council models.
 
@@ -276,7 +282,11 @@ async def stage1_collect_responses(
 
     # Query uncached models in parallel
     if models_to_query:
-        responses, token_usages = await query_models_parallel(models_to_query, messages, ctx)
+        responses, token_usages = await query_models_parallel(
+            models_to_query, messages, ctx,
+            soft_timeout=soft_timeout,
+            min_responses=min_responses,
+        )
     else:
         responses, token_usages = {}, {}
 
