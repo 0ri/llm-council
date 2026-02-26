@@ -264,9 +264,7 @@ class TestCodemapMode:
     def test_codemap_extracts_imports(self):
         """Test that codemap preserves import statements."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            (Path(tmpdir) / "app.py").write_text(
-                "import os\nfrom pathlib import Path\n\ndef main():\n    pass\n"
-            )
+            (Path(tmpdir) / "app.py").write_text("import os\nfrom pathlib import Path\n\ndef main():\n    pass\n")
 
             result = flatten_directory(tmpdir, codemap=True)
 

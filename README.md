@@ -220,7 +220,6 @@ This project was inspired by the desire to evaluate multiple LLMs side by side a
 
 ## Known Limitations
 
-- **No built-in caching** - repeated queries re-query all models, increasing latency and API costs
 - **No streaming output** - waits for full responses from all models before displaying results
 
 ## Contributing

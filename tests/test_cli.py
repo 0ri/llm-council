@@ -47,7 +47,7 @@ class TestLoadConfig:
         assert "chairman" in result
         assert len(result["council_models"]) > 0
         assert result["council_models"][0]["name"] == "Claude Opus 4.6"
-        assert result["chairman"]["name"] == "Claude Opus 4.6"
+        assert result["chairman"]["name"] == "Gemini-3.1-Pro"
 
     def test_load_config_with_invalid_json(self):
         """Test that invalid JSON causes SystemExit."""
@@ -110,43 +110,19 @@ class TestLoadConfig:
         assert isinstance(result["council_models"], list)
         assert len(result["council_models"]) >= 3  # At least 3 models
 
+        # All default models should use OpenRouter
+        for model in result["council_models"]:
+            assert model["provider"] == "openrouter"
+            assert "model_id" in model
+
         # Check first model (Claude)
         claude = result["council_models"][0]
         assert claude["name"] == "Claude Opus 4.6"
-        assert claude["provider"] == "bedrock"
-        assert "model_id" in claude
-        assert claude.get("budget_tokens") == 10000
-
-        # Check GPT model
-        gpt_models = [m for m in result["council_models"] if "GPT" in m["name"]]
-        assert len(gpt_models) > 0
-        gpt = gpt_models[0]
-        assert gpt["provider"] == "poe"
-        assert "bot_name" in gpt
-        assert gpt.get("web_search") is True
-        assert gpt.get("reasoning_effort") == "high"
+        assert "anthropic" in claude["model_id"]
 
         # Check chairman
-        assert result["chairman"]["name"] == "Claude Opus 4.6"
-        assert result["chairman"]["provider"] == "bedrock"
-
-    def test_default_config_enhanced_capabilities(self):
-        """Test that default config includes enhanced model capabilities."""
-        result = load_config("/nonexistent/file.json")
-
-        # Check for enhanced capabilities
-        for model in result["council_models"]:
-            if model["provider"] == "bedrock" and "claude-opus" in model.get("model_id", ""):
-                # Claude Opus should have budget_tokens
-                assert "budget_tokens" in model
-
-            if model["provider"] == "poe":
-                if "GPT" in model["name"]:
-                    # GPT models should have web_search and reasoning_effort
-                    assert "web_search" in model or "reasoning_effort" in model
-                if "Gemini" in model["name"]:
-                    # Gemini models should have web_search
-                    assert "web_search" in model
+        assert result["chairman"]["provider"] == "openrouter"
+        assert "model_id" in result["chairman"]
 
 
 class TestSetupLogging:

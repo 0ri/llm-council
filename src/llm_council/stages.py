@@ -283,7 +283,9 @@ async def stage1_collect_responses(
     # Query uncached models in parallel
     if models_to_query:
         responses, token_usages = await query_models_parallel(
-            models_to_query, messages, ctx,
+            models_to_query,
+            messages,
+            ctx,
             soft_timeout=soft_timeout,
             min_responses=min_responses,
         )
