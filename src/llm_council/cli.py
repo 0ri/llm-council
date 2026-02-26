@@ -232,9 +232,32 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--question-file", dest="question_file", metavar="FILE", help="Read question from file")
     parser.add_argument("--seed", type=int, default=None, help="Seed for reproducible bootstrap confidence intervals")
     parser.add_argument("--no-cache", dest="no_cache", action="store_true", help="Disable local response cache")
-    parser.add_argument("--cache-ttl", dest="cache_ttl", type=_positive_int, default=None, metavar="SECONDS", help="Cache TTL in seconds (0 = bypass cache reads)")
-    parser.add_argument("--clear-cache", dest="clear_cache", action="store_true", help="Delete all cache entries and exit")
-    parser.add_argument("--cache-stats", dest="cache_stats", action="store_true", help="Print cache statistics and exit")
+    parser.add_argument(
+        "--cache-ttl",
+        dest="cache_ttl",
+        type=_positive_int,
+        default=None,
+        metavar="SECONDS",
+        help="Cache TTL in seconds (0 = bypass cache reads)",
+    )
+    parser.add_argument(
+        "--clear-cache",
+        dest="clear_cache",
+        action="store_true",
+        help="Delete all cache entries and exit",
+    )
+    parser.add_argument(
+        "--cache-stats",
+        dest="cache_stats",
+        action="store_true",
+        help="Print cache statistics and exit",
+    )
+    parser.add_argument(
+        "--stream",
+        action="store_true",
+        default=False,
+        help="Enable streaming output for Stage 3 synthesis",
+    )
     return parser
 
 
@@ -332,6 +355,16 @@ def main():
     # Resolve cache TTL
     resolved_ttl = _resolve_ttl(args, config)
 
+    # Build streaming callback when --stream is enabled
+    on_chunk = None
+    if args.stream:
+
+        async def _stream_to_stdout(chunk: str) -> None:
+            sys.stdout.write(chunk)
+            sys.stdout.flush()
+
+        on_chunk = _stream_to_stdout
+
     # Run council
     result = asyncio.run(
         run_council(
@@ -343,6 +376,8 @@ def main():
             seed=args.seed,
             use_cache=not args.no_cache,
             cache_ttl=resolved_ttl,
+            stream=args.stream,
+            on_chunk=on_chunk,
         )
     )
 

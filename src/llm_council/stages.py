@@ -7,6 +7,7 @@ import logging
 import random
 import secrets
 import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from .budget import BudgetExceededError
@@ -21,7 +22,7 @@ from .prompts import (
     SYNTHESIS_PROMPT_TEMPLATE,
     SYNTHESIS_SYSTEM_MESSAGE_TEMPLATE,
 )
-from .providers import MODEL_TIMEOUT, SOFT_TIMEOUT
+from .providers import MODEL_TIMEOUT, SOFT_TIMEOUT, StreamingProvider, fallback_astream
 from .security import build_manipulation_resistance_msg, format_anonymized_responses, sanitize_model_output
 
 logger = logging.getLogger("llm-council")
@@ -119,6 +120,105 @@ async def query_model(
             ctx.budget_guard.release(estimated_input, estimated_output, model_name)
         logger.error(f"Error querying {model_name}: {e}")
         return None, None
+
+
+async def stream_model(
+    model_config: dict[str, Any],
+    messages: list[dict[str, str]],
+    ctx: CouncilContext,
+    on_chunk: Callable[[str], Awaitable[None]] | None = None,
+    system_message: str | None = None,
+) -> tuple[str, dict | None]:
+    """Stream a model response, falling back to query_model on error.
+
+    Args:
+        model_config: Dict with provider info and model parameters.
+        messages: List of message dicts.
+        ctx: CouncilContext providing providers, circuit breakers, semaphore.
+        on_chunk: Optional async callback invoked for each text chunk.
+        system_message: Optional system message.
+
+    Returns:
+        Tuple of (accumulated text, token usage dict or None).
+    """
+    provider_name = model_config.get("provider", "poe")
+    model_name = model_config.get("name", "unknown")
+    bot_name = model_config.get("bot_name", "")
+
+    # Build circuit breaker key
+    if provider_name == "poe" and bot_name:
+        cb_key = f"{provider_name}:{bot_name}"
+    elif provider_name == "openrouter":
+        cb_key = f"openrouter:{model_config.get('model_id', model_name)}"
+    else:
+        cb_key = f"{provider_name}:{model_name}"
+
+    # Check circuit breaker
+    cb = ctx.get_circuit_breaker(cb_key)
+    if cb.is_open:
+        logger.warning(f"Circuit breaker open for {cb_key}, skipping {model_name}")
+        return "", None
+
+    # Budget reservation
+    estimated_input = 0
+    estimated_output = 0
+    budget_reserved = False
+    if ctx.budget_guard is not None:
+        from .cost import estimate_tokens
+
+        input_text = " ".join(m.get("content", "") for m in messages)
+        if system_message:
+            input_text += " " + system_message
+        estimated_input = estimate_tokens(input_text)
+        estimated_output = 2000
+        try:
+            ctx.budget_guard.reserve(estimated_input, estimated_output, model_name)
+            budget_reserved = True
+        except BudgetExceededError:
+            logger.warning(f"Budget exceeded, skipping {model_name}")
+            return "", None
+
+    config_with_context = model_config.copy()
+    config_with_context["_messages"] = messages
+    config_with_context["_system_message"] = system_message
+
+    try:
+        provider = ctx.get_provider(provider_name)
+
+        if isinstance(provider, StreamingProvider):
+            stream_result = provider.astream("", config_with_context, MODEL_TIMEOUT)
+        else:
+            stream_result = fallback_astream(provider, "", config_with_context, MODEL_TIMEOUT)
+
+        accumulated = ""
+        async for chunk in stream_result:
+            accumulated += chunk
+            if on_chunk is not None:
+                await on_chunk(chunk)
+
+        cb.record_success()
+
+        usage = stream_result.usage
+
+        # Commit budget
+        if budget_reserved:
+            actual_in = usage.get("input_tokens", estimated_input) if usage else estimated_input
+            actual_out = usage.get("output_tokens", estimated_output) if usage else estimated_output
+            ctx.budget_guard.commit(actual_in, actual_out, model_name, estimated_input, estimated_output)
+
+        return accumulated, usage
+
+    except Exception as e:
+        cb.record_failure()
+        if budget_reserved:
+            ctx.budget_guard.release(estimated_input, estimated_output, model_name)
+        logger.warning(f"Streaming error for {model_name}: {e}, falling back to query_model")
+
+        # Fall back to query_model
+        result, usage = await query_model(model_config, messages, ctx, system_message)
+        if result is not None:
+            return result.get("content", ""), usage
+        return "", None
 
 
 async def query_models_parallel(
@@ -622,6 +722,8 @@ async def stage3_synthesize_final(
     aggregate_rankings: list[AggregateRanking],
     chairman_config: dict[str, Any],
     ctx: CouncilContext,
+    stream: bool = False,
+    on_chunk: Callable[[str], Awaitable[None]] | None = None,
 ) -> tuple[Stage3Result, dict[str, Any] | None]:
     """Stage 3: Chairman synthesizes final response.
 
@@ -635,6 +737,8 @@ async def stage3_synthesize_final(
         aggregate_rankings: List of AggregateRanking objects
         chairman_config: Chairman model config
         ctx: CouncilContext providing providers, circuit breakers, semaphore, progress
+        stream: If True, use streaming for the chairman query.
+        on_chunk: Optional async callback invoked for each streamed text chunk.
 
     Returns:
         Tuple of (result, token usage dict or None)
@@ -668,15 +772,29 @@ async def stage3_synthesize_final(
     # Query the chairman model with system message (suppress provider flags for synthesis)
     chairman_query_config = {**chairman_config, "_skip_flags": True}
     start = time.time()
-    response, token_usage = await query_model(chairman_query_config, messages, ctx, system_message)
-    elapsed = time.time() - start
 
-    if progress:
-        status = ModelStatus.DONE if response else ModelStatus.FAILED
-        await progress.update_model(chairman_name, status, elapsed)
-        await progress.complete_stage()
+    if stream:
+        text, token_usage = await stream_model(
+            chairman_query_config, messages, ctx, on_chunk=on_chunk, system_message=system_message
+        )
+        elapsed = time.time() - start
 
-    if response is None:
-        return Stage3Result(model=chairman_name, response="Error: Unable to generate final synthesis."), None
+        if progress:
+            status = ModelStatus.DONE if text else ModelStatus.FAILED
+            await progress.update_model(chairman_name, status, elapsed)
+            await progress.complete_stage()
 
-    return Stage3Result(model=chairman_name, response=response.get("content", "")), token_usage
+        return Stage3Result(model=chairman_name, response=text), token_usage
+    else:
+        response, token_usage = await query_model(chairman_query_config, messages, ctx, system_message)
+        elapsed = time.time() - start
+
+        if progress:
+            status = ModelStatus.DONE if response else ModelStatus.FAILED
+            await progress.update_model(chairman_name, status, elapsed)
+            await progress.complete_stage()
+
+        if response is None:
+            return Stage3Result(model=chairman_name, response="Error: Unable to generate final synthesis."), None
+
+        return Stage3Result(model=chairman_name, response=response.get("content", "")), token_usage

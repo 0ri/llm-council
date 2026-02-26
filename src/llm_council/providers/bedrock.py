@@ -5,9 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from typing import TYPE_CHECKING
 
 from botocore.exceptions import ClientError
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
+
+if TYPE_CHECKING:
+    from . import StreamResult
 
 logger = logging.getLogger("llm-council")
 
@@ -144,3 +148,91 @@ class BedrockProvider:
         except asyncio.TimeoutError:
             logger.warning(f"Bedrock timeout for model {model_config.get('name', 'unknown')}")
             raise
+
+    def astream(self, prompt: str, model_config: dict, timeout: int) -> StreamResult:
+        """Stream Claude via AWS Bedrock using invoke_model_with_response_stream.
+
+        Returns:
+            StreamResult wrapping an async generator of text chunks.
+        """
+        from . import DEFAULT_MAX_TOKENS, MAX_RETRIES, StreamResult
+
+        model_id = model_config["model_id"]
+        budget_tokens = model_config.get("budget_tokens")
+        messages = model_config.get("_messages", [{"role": "user", "content": prompt}])
+        system_message = model_config.get("_system_message")
+
+        @retry(
+            stop=stop_after_attempt(MAX_RETRIES),
+            wait=wait_exponential(multiplier=1, min=2, max=10),
+            retry=retry_if_exception(is_retryable_bedrock_error),
+            reraise=True,
+        )
+        def stream_bedrock_inner():
+            client = self._get_client()
+            bedrock_messages = [{"role": m["role"], "content": m["content"]} for m in messages]
+
+            request_body = {
+                "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": DEFAULT_MAX_TOKENS if budget_tokens else 8192,
+                "messages": bedrock_messages,
+            }
+
+            if system_message:
+                request_body["system"] = system_message
+
+            if budget_tokens:
+                request_body["thinking"] = {"type": "enabled", "budget_tokens": budget_tokens}
+
+            response = client.invoke_model_with_response_stream(modelId=model_id, body=json.dumps(request_body))
+            return response
+
+        usage_info: dict[str, int] = {}
+
+        async def _generate():
+            response = await asyncio.wait_for(
+                asyncio.to_thread(stream_bedrock_inner),
+                timeout=timeout,
+            )
+            stream = response.get("body", [])
+            for event in stream:
+                chunk = event.get("chunk")
+                if not chunk:
+                    continue
+                data = json.loads(chunk.get("bytes", b"{}"))
+                event_type = data.get("type", "")
+
+                if event_type == "message_start":
+                    msg = data.get("message", {})
+                    msg_usage = msg.get("usage", {})
+                    if "input_tokens" in msg_usage:
+                        usage_info["input_tokens"] = msg_usage["input_tokens"]
+
+                elif event_type == "content_block_delta":
+                    delta = data.get("delta", {})
+                    if delta.get("type") == "text_delta":
+                        text = delta.get("text", "")
+                        if text:
+                            yield text
+
+                elif event_type == "message_delta":
+                    delta_usage = data.get("usage", {})
+                    if "output_tokens" in delta_usage:
+                        usage_info["output_tokens"] = delta_usage["output_tokens"]
+
+        gen = _generate()
+        result = StreamResult(gen)
+
+        original_anext = gen.__anext__
+
+        async def patched_anext():
+            try:
+                return await original_anext()
+            except StopAsyncIteration:
+                if usage_info:
+                    result.usage = usage_info
+                raise
+
+        result._aiter.__anext__ = patched_anext  # type: ignore[attr-defined]
+
+        return result

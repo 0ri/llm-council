@@ -7,6 +7,7 @@ import os
 import sys
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from pydantic import ValidationError
@@ -155,6 +156,8 @@ async def run_council(
     seed: int | None = None,
     use_cache: bool = True,
     cache_ttl: int = 86400,
+    stream: bool = False,
+    on_chunk: Callable[[str], Awaitable[None]] | None = None,
 ) -> str:
     """Run the council process up to the specified stage.
 
@@ -168,6 +171,8 @@ async def run_council(
         seed: Optional seed for reproducible bootstrap CI.
         use_cache: If True, use local SQLite cache for Stage 1 responses.
         cache_ttl: TTL in seconds for cached responses. Default: 86400 (24 hours).
+        stream: If True, use streaming for Stage 3 synthesis.
+        on_chunk: Optional async callback invoked for each streamed text chunk.
 
     Returns:
         Formatted council output string
@@ -299,6 +304,8 @@ async def run_council(
             aggregate_rankings,
             chairman_config,
             ctx,
+            stream=stream,
+            on_chunk=on_chunk,
         )
 
         logger.info("Stage 3 complete!")
