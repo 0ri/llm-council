@@ -9,12 +9,12 @@ class TestMalformedJSON:
     """Test handling of various malformed JSON responses."""
 
     def test_invalid_json_missing_closing_brace(self):
-        """Test JSON with missing closing brace - falls back to inline parsing."""
+        """Test JSON with missing closing brace - falls back to comma-separated parsing."""
         text = '{"ranking": ["Response A", "Response B", "Response C"'
         result, reliable = parse_ranking_from_text(text, num_responses=3)
-        # Parser falls back to inline extraction, finds all responses
+        # Comma-separated parser catches the labels on one line
         assert result == ["Response A", "Response B", "Response C"]
-        assert reliable is False  # Not reliable since it's a fallback
+        assert reliable is True
 
     def test_invalid_json_missing_value(self):
         """Test JSON with missing value after colon."""
@@ -31,28 +31,28 @@ class TestMalformedJSON:
         assert reliable is False
 
     def test_invalid_json_missing_quotes(self):
-        """Test JSON with missing quotes around strings - falls back to inline parsing."""
+        """Test JSON with missing quotes around strings - falls back to comma-separated parsing."""
         text = '{"ranking": [Response A, Response B, Response C]}'
         result, reliable = parse_ranking_from_text(text, num_responses=3)
-        # Parser falls back to inline extraction, finds all responses
+        # Comma-separated parser catches the labels on one line
         assert result == ["Response A", "Response B", "Response C"]
-        assert reliable is False  # Not reliable since it's a fallback
+        assert reliable is True
 
     def test_invalid_json_extra_comma(self):
-        """Test JSON with trailing comma in array - falls back to inline parsing."""
+        """Test JSON with trailing comma in array - falls back to comma-separated parsing."""
         text = '{"ranking": ["Response A", "Response B", "Response C",]}'
         result, reliable = parse_ranking_from_text(text, num_responses=3)
-        # Parser falls back to inline extraction, finds all responses
+        # Comma-separated parser catches the labels on one line
         assert result == ["Response A", "Response B", "Response C"]
-        assert reliable is False  # Not reliable since it's a fallback
+        assert reliable is True
 
     def test_invalid_json_nested_structure(self):
-        """Test JSON with unexpected nested structure - falls back to inline parsing."""
+        """Test JSON with unexpected nested structure - falls back to ordinal parsing."""
         text = '{"ranking": {"first": "Response A", "second": "Response B"}}'
         result, reliable = parse_ranking_from_text(text, num_responses=2)
-        # Parser falls back to inline extraction, finds both responses
+        # Ordinal parser catches "first" -> Response A, "second" -> Response B
         assert result == ["Response A", "Response B"]
-        assert reliable is False  # Not reliable since it's a fallback
+        assert reliable is True
 
 
 class TestRefusalResponses:
@@ -131,9 +131,9 @@ class TestPromptInjection:
         # Unicode RLO (Right-to-Left Override) character
         text = '{"ranking": ["Response A\u202e", "Response B", "Response C"]}'
         result, reliable = parse_ranking_from_text(text, num_responses=3)
-        # Parser falls back to inline extraction, finds "Response A" without unicode
+        # Comma-separated parser catches the labels on one line
         assert result == ["Response A", "Response B", "Response C"]
-        assert reliable is False  # Not reliable since it's a fallback
+        assert reliable is True
 
 
 class TestExtraContent:
@@ -208,24 +208,25 @@ class TestWrongKeyNames:
         """Test JSON using 'order' instead of 'ranking'."""
         text = '{"order": ["Response A", "Response B", "Response C"]}'
         result, reliable = parse_ranking_from_text(text, num_responses=3)
-        # Should fail JSON parsing and fall back to inline
-        assert set(result) == {"Response A", "Response B", "Response C"}
-        assert reliable is False
+        # Comma-separated parser catches the labels on one line
+        assert result == ["Response A", "Response B", "Response C"]
+        assert reliable is True
 
     def test_ranks_key(self):
         """Test JSON using 'ranks' instead of 'ranking'."""
         text = '{"ranks": ["Response B", "Response C", "Response A"]}'
         result, reliable = parse_ranking_from_text(text, num_responses=3)
-        # Falls back to inline parsing
-        assert set(result) == {"Response A", "Response B", "Response C"}
-        assert reliable is False
+        # Comma-separated parser catches the labels on one line
+        assert result == ["Response B", "Response C", "Response A"]
+        assert reliable is True
 
     def test_results_key(self):
         """Test JSON using 'results' instead of 'ranking'."""
         text = '{"results": ["Response C", "Response A", "Response B"]}'
         result, reliable = parse_ranking_from_text(text, num_responses=3)
-        assert set(result) == {"Response A", "Response B", "Response C"}
-        assert reliable is False
+        # Comma-separated parser catches the labels on one line
+        assert result == ["Response C", "Response A", "Response B"]
+        assert reliable is True
 
     def test_nested_ranking_key(self):
         """Test JSON with ranking nested under another key."""
@@ -282,9 +283,9 @@ class TestMixedFormats:
         Response B, Response A, Response C
         """
         result, reliable = parse_ranking_from_text(text, num_responses=3)
-        assert set(result) == {"Response A", "Response B", "Response C"}
-        # Should fall back to inline parsing
-        assert reliable is False
+        # Comma-separated parser catches "Response B, Response A, Response C" line
+        assert result == ["Response B", "Response A", "Response C"]
+        assert reliable is True
 
 
 class TestEdgeCases:
@@ -346,9 +347,9 @@ class TestEdgeCases:
         """Test response with Unicode characters mixed in."""
         text = '{"ranking": ["Response A\u200b", "Response B", "Response C"]}'
         result, reliable = parse_ranking_from_text(text, num_responses=3)
-        # Parser falls back to inline extraction, strips unicode and finds all responses
+        # Comma-separated parser catches the labels on one line
         assert result == ["Response A", "Response B", "Response C"]
-        assert reliable is False  # Not reliable since it's a fallback
+        assert reliable is True
 
     def test_response_with_numbers(self):
         """Test response labels with numbers instead of letters."""
