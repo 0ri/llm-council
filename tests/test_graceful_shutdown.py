@@ -15,8 +15,8 @@ from hypothesis import given, settings
 from llm_council.context import CouncilContext
 from llm_council.progress import ProgressManager
 
-
 # --- Strategies ---
+
 
 @st.composite
 def progress_manager_states(draw):
@@ -79,9 +79,7 @@ async def test_shutdown_stops_render_resources(data):
     )
 
     # _live must be None
-    assert manager._live is None, (
-        f"_live should be None after shutdown(), got {manager._live}"
-    )
+    assert manager._live is None, f"_live should be None after shutdown(), got {manager._live}"
 
 
 # --- Unit Tests for ProgressManager shutdown (Task 1.3) ---
@@ -301,9 +299,12 @@ async def test_shutdown_idempotency(data):
 
     # Each provider's close() must have been called exactly once
     for name, provider in providers.items():
-        provider.close.assert_awaited_once(), (
-            f"{name}.close() should be called exactly once, "
-            f"but was called {provider.close.await_count} times after {call_count} shutdown() calls"
+        (
+            provider.close.assert_awaited_once(),
+            (
+                f"{name}.close() should be called exactly once, "
+                f"but was called {provider.close.await_count} times after {call_count} shutdown() calls"
+            ),
         )
 
     # Cache close() must have been called exactly once

@@ -263,7 +263,10 @@ class TestFallbackChainOrdering:
         assert reliable is True
 
     def test_json_still_wins_over_new_parsers(self):
-        text = '```json\n{"ranking": ["Response A", "Response B", "Response C"]}\n```\n1. Response C\n2. Response B\n3. Response A'
+        text = (
+            '```json\n{"ranking": ["Response A", "Response B", "Response C"]}\n```\n'
+            "1. Response C\n2. Response B\n3. Response A"
+        )
         result, reliable = parse_ranking_from_text(text, num_responses=3)
         assert result == ["Response A", "Response B", "Response C"]
         assert reliable is True

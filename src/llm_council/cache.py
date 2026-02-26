@@ -59,10 +59,11 @@ class ResponseCache:
         """Look up a cached response. Returns (response_text, token_usage) or None if expired/missing."""
         key = _cache_key(question, model_name, model_id)
         conn = self._get_conn()
-        row = conn.execute(
-            "SELECT response, token_usage FROM responses WHERE cache_key = ? AND created_at > datetime('now', ? || ' seconds')",
-            (key, str(-self.ttl)),
-        ).fetchone()
+        sql = (
+            "SELECT response, token_usage FROM responses"
+            " WHERE cache_key = ? AND created_at > datetime('now', ? || ' seconds')"
+        )
+        row = conn.execute(sql, (key, str(-self.ttl))).fetchone()
         if row is None:
             conn.execute("DELETE FROM responses WHERE cache_key = ?", (key,))
             conn.commit()

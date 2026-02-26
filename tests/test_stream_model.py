@@ -256,9 +256,6 @@ class TestStreamModelBudgetGuard:
         ctx = _make_ctx(budget_guard=budget)
         ctx.providers["bedrock"] = provider
 
-        initial_input = budget.total_input_tokens
-        initial_output = budget.total_output_tokens
-
         await stream_model(MODEL_CONFIG, MESSAGES, ctx)
 
         # The stream_model fallback calls query_model which does its own

@@ -245,8 +245,8 @@ def test_streaming_round_trip_equivalence(
 # --- Property Test 6: Callback receives all chunks in order ---
 # Feature: streaming-output, Property 6: Callback receives all chunks in order
 
-from llm_council.context import CouncilContext
-from llm_council.stages import stream_model
+from llm_council.context import CouncilContext  # noqa: E402
+from llm_council.stages import stream_model  # noqa: E402
 
 
 class _MockStreamingProviderForCallback:
@@ -308,7 +308,7 @@ def test_callback_receives_all_chunks_in_order(chunks: list[str]):
         assert len(received_chunks) == len(chunks), (
             f"Expected {len(chunks)} callback invocations, got {len(received_chunks)}"
         )
-        for i, (received, expected) in enumerate(zip(received_chunks, chunks)):
+        for i, (received, expected) in enumerate(zip(received_chunks, chunks, strict=False)):
             assert received == expected, f"Chunk {i} mismatch: received {received!r} != expected {expected!r}"
 
         # 2. Concatenation of all callback arguments equals the full response
@@ -329,10 +329,10 @@ def test_callback_receives_all_chunks_in_order(chunks: list[str]):
 # --- Property Test 4: Stage 1 output ordering is invariant to completion order ---
 # Feature: streaming-output, Property 4: Stage 1 output ordering is invariant to completion order
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, patch  # noqa: E402
 
-from llm_council.models import Stage1Result
-from llm_council.stages import stage1_collect_responses
+from llm_council.models import Stage1Result  # noqa: E402
+from llm_council.stages import stage1_collect_responses  # noqa: E402
 
 
 def _unique_model_names():
@@ -400,7 +400,7 @@ def test_stage1_output_ordering_invariant_to_completion_order(
             f"Expected {len(model_names)} results, got {len(stage1_results)}"
         )
 
-        for i, (result, expected_name) in enumerate(zip(stage1_results, model_names)):
+        for i, (result, expected_name) in enumerate(zip(stage1_results, model_names, strict=False)):
             assert isinstance(result, Stage1Result)
             assert result.model == expected_name, (
                 f"Result {i}: expected model {expected_name!r}, got {result.model!r}. "
@@ -414,8 +414,8 @@ def test_stage1_output_ordering_invariant_to_completion_order(
 # --- Property Test 5: Output equivalence regardless of streaming mode ---
 # Feature: streaming-output, Property 5: Output equivalence regardless of streaming mode
 
-from llm_council.models import AggregateRanking, Stage2Result, Stage3Result
-from llm_council.stages import stage3_synthesize_final
+from llm_council.models import AggregateRanking, Stage2Result, Stage3Result  # noqa: E402
+from llm_council.stages import stage3_synthesize_final  # noqa: E402
 
 
 class _MockDualModeProvider:
@@ -558,7 +558,7 @@ def test_output_equivalence_regardless_of_streaming_mode(
 # --- Property Test 7: Stage 1 model responses are displayed immediately on completion ---
 # Feature: streaming-output, Property 7: Stage 1 model responses are displayed immediately on completion
 
-from llm_council.progress import ModelStatus, ProgressManager
+from llm_council.progress import ModelStatus, ProgressManager  # noqa: E402
 
 
 def _model_names_strategy():

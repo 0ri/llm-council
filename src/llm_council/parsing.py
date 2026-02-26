@@ -5,16 +5,35 @@ from __future__ import annotations
 import json
 import re
 
-
-
 ORDINALS: dict[str, int] = {
-    "first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5,
-    "sixth": 6, "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10,
-    "eleventh": 11, "twelfth": 12, "thirteenth": 13, "fourteenth": 14,
-    "fifteenth": 15, "sixteenth": 16, "seventeenth": 17, "eighteenth": 18,
-    "nineteenth": 19, "twentieth": 20, "twenty-first": 21, "twenty-second": 22,
-    "twenty-third": 23, "twenty-fourth": 24, "twenty-fifth": 25, "twenty-sixth": 26,
+    "first": 1,
+    "second": 2,
+    "third": 3,
+    "fourth": 4,
+    "fifth": 5,
+    "sixth": 6,
+    "seventh": 7,
+    "eighth": 8,
+    "ninth": 9,
+    "tenth": 10,
+    "eleventh": 11,
+    "twelfth": 12,
+    "thirteenth": 13,
+    "fourteenth": 14,
+    "fifteenth": 15,
+    "sixteenth": 16,
+    "seventeenth": 17,
+    "eighteenth": 18,
+    "nineteenth": 19,
+    "twentieth": 20,
+    "twenty-first": 21,
+    "twenty-second": 22,
+    "twenty-third": 23,
+    "twenty-fourth": 24,
+    "twenty-fifth": 25,
+    "twenty-sixth": 26,
 }
+
 
 def _parse_json_ranking(text: str, num_responses: int | None = None) -> list[str] | None:
     """Try to parse a JSON object/array from the text containing ranking.
@@ -107,6 +126,7 @@ def _parse_inline_ranking(text: str, num_responses: int | None = None) -> list[s
 
     return None
 
+
 def _parse_headerless_numbered_ranking(text: str, num_responses: int | None = None) -> list[str] | None:
     """Parse numbered lists like '1. Response A' without a FINAL RANKING header.
 
@@ -117,11 +137,6 @@ def _parse_headerless_numbered_ranking(text: str, num_responses: int | None = No
         return None
     matches = re.findall(r"^\s*\d+[\.\)]\s*(Response [A-Z])", text, re.MULTILINE)
     return matches if matches else None
-
-
-
-
-
 
 
 def _parse_ordinal_ranking(text: str, num_responses: int | None = None) -> list[str] | None:
@@ -195,11 +210,6 @@ def _parse_ordinal_ranking(text: str, num_responses: int | None = None) -> list[
     return [label for _, label in sorted(position_to_label.items())]
 
 
-
-
-
-
-
 def _parse_comma_separated_ranking(text: str, num_responses: int | None = None) -> list[str] | None:
     """Parse comma-separated rankings like 'Response B, Response A, Response C'.
 
@@ -218,8 +228,6 @@ def _parse_comma_separated_ranking(text: str, num_responses: int | None = None) 
                 return None  # duplicates
             return labels
     return None
-
-
 
 
 def parse_ranking_from_text(ranking_text: str, num_responses: int | None = None) -> tuple[list[str], bool]:
@@ -257,6 +265,7 @@ def parse_ranking_from_text(ranking_text: str, num_responses: int | None = None)
 
     return ([], False)
 
+
 def format_ranking(ranking: list[str]) -> str:
     """Format a ballot as a numbered list string.
 
@@ -269,5 +278,3 @@ def format_ranking(ranking: list[str]) -> str:
     if not ranking:
         return ""
     return "\n".join(f"{i + 1}. {label}" for i, label in enumerate(ranking))
-
-

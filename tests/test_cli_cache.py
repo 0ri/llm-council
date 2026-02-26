@@ -36,11 +36,10 @@ def test_cache_ttl_positive_is_accepted():
     assert args.cache_ttl == 3600
 
 
-import sys
-from pathlib import Path
+import sys  # noqa: E402
 
-from llm_council.cache import ResponseCache
-from llm_council.cli import main
+from llm_council.cache import ResponseCache  # noqa: E402
+from llm_council.cli import main  # noqa: E402
 
 
 def _patch_cache_db(monkeypatch, db_path):

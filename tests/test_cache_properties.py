@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
@@ -12,15 +11,16 @@ from hypothesis import strategies as st
 from llm_council.cache import ResponseCache, _cache_key
 from llm_council.cli import _format_file_size
 
-
 # Strategies for generating cache entry data
 question_st = st.text(min_size=1, max_size=200)
 model_name_st = st.text(min_size=1, max_size=100)
 model_id_st = st.text(min_size=1, max_size=100)
 response_st = st.text(min_size=1, max_size=500)
 token_usage_st = st.fixed_dictionaries(
-    {"input_tokens": st.integers(min_value=0, max_value=10000),
-     "output_tokens": st.integers(min_value=0, max_value=10000)}
+    {
+        "input_tokens": st.integers(min_value=0, max_value=10000),
+        "output_tokens": st.integers(min_value=0, max_value=10000),
+    }
 )
 # TTL between 1 and 3600 seconds
 ttl_st = st.integers(min_value=1, max_value=3600)
@@ -64,9 +64,7 @@ def test_expired_entries_are_missed_and_deleted(
     age_seconds = ttl + extra_age
     conn = cache._get_conn()
     key = _cache_key(question, model_name, model_id)
-    old_timestamp = (datetime.now(timezone.utc) - timedelta(seconds=age_seconds)).strftime(
-        "%Y-%m-%d %H:%M:%S"
-    )
+    old_timestamp = (datetime.now(timezone.utc) - timedelta(seconds=age_seconds)).strftime("%Y-%m-%d %H:%M:%S")
     conn.execute(
         "UPDATE responses SET created_at = ? WHERE cache_key = ?",
         (old_timestamp, key),
@@ -78,9 +76,7 @@ def test_expired_entries_are_missed_and_deleted(
     assert result is None, f"Expected None for expired entry, got {result}"
 
     # The row should have been deleted from the database
-    row = conn.execute(
-        "SELECT COUNT(*) FROM responses WHERE cache_key = ?", (key,)
-    ).fetchone()
+    row = conn.execute("SELECT COUNT(*) FROM responses WHERE cache_key = ?", (key,)).fetchone()
     assert row[0] == 0, f"Expected expired row to be deleted, but found {row[0]} rows"
 
     cache.close()
@@ -120,14 +116,13 @@ def test_fresh_entry_round_trip(
 
     assert result is not None, "Expected cache hit for freshly stored entry"
     returned_response, returned_token_usage = result
-    assert returned_response == response, (
-        f"Response mismatch: expected {response!r}, got {returned_response!r}"
-    )
+    assert returned_response == response, f"Response mismatch: expected {response!r}, got {returned_response!r}"
     assert returned_token_usage == token_usage, (
         f"Token usage mismatch: expected {token_usage!r}, got {returned_token_usage!r}"
     )
 
     cache.close()
+
 
 # Strategy for cache entries with an age (in seconds)
 # We use two separate strategies: one for clearly expired entries and one for clearly fresh entries
@@ -136,19 +131,24 @@ fresh_age_st = st.integers(min_value=0, max_value=0)  # age=0 means just created
 expired_extra_age_st = st.integers(min_value=2, max_value=7200)  # extra seconds beyond TTL
 
 entry_with_freshness_st = st.tuples(
-    question_st,   # question
-    model_name_st, # model_name
-    model_id_st,   # model_id
-    response_st,   # response
-    token_usage_st,# token_usage
-    st.booleans(), # is_expired
+    question_st,  # question
+    model_name_st,  # model_name
+    model_id_st,  # model_id
+    response_st,  # response
+    token_usage_st,  # token_usage
+    st.booleans(),  # is_expired
 )
 
 
 # Feature: cache-ttl-invalidation, Property 7: Startup cleanup deletes all expired entries
 @settings(max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(
-    entries=st.lists(entry_with_freshness_st, min_size=1, max_size=20, unique_by=lambda e: _cache_key(e[0], e[1], e[2])),
+    entries=st.lists(
+        entry_with_freshness_st,
+        min_size=1,
+        max_size=20,
+        unique_by=lambda e: _cache_key(e[0], e[1], e[2]),
+    ),
     ttl=ttl_st,
     expired_extra=expired_extra_age_st,
 )
@@ -197,11 +197,13 @@ def test_startup_cleanup_deletes_expired_entries(
             age = 0
             fresh_keys.add(key)
 
-        created_at = (datetime.now(timezone.utc) - timedelta(seconds=age)).strftime(
-            "%Y-%m-%d %H:%M:%S"
+        created_at = (datetime.now(timezone.utc) - timedelta(seconds=age)).strftime("%Y-%m-%d %H:%M:%S")
+        sql = (
+            "INSERT OR REPLACE INTO responses"
+            " (cache_key, model_name, response, token_usage, created_at) VALUES (?, ?, ?, ?, ?)"
         )
         conn.execute(
-            "INSERT OR REPLACE INTO responses (cache_key, model_name, response, token_usage, created_at) VALUES (?, ?, ?, ?, ?)",
+            sql,
             (key, model_name, response, json.dumps(token_usage), created_at),
         )
 
@@ -218,9 +220,7 @@ def test_startup_cleanup_deletes_expired_entries(
 
     # Verify only fresh entries remain
     db_conn = sqlite3.connect(str(db_path))
-    remaining_keys = {
-        row[0] for row in db_conn.execute("SELECT cache_key FROM responses").fetchall()
-    }
+    remaining_keys = {row[0] for row in db_conn.execute("SELECT cache_key FROM responses").fetchall()}
     db_conn.close()
 
     assert remaining_keys == fresh_keys, (
@@ -231,8 +231,7 @@ def test_startup_cleanup_deletes_expired_entries(
     # Verify DEBUG log message when entries were removed
     if expired_keys:
         cleanup_messages = [
-            r.message for r in caplog.records
-            if "expired" in r.message.lower() and str(len(expired_keys)) in r.message
+            r.message for r in caplog.records if "expired" in r.message.lower() and str(len(expired_keys)) in r.message
         ]
         assert len(cleanup_messages) > 0, (
             f"Expected DEBUG log about cleaning up {len(expired_keys)} expired entries, "
@@ -240,7 +239,6 @@ def test_startup_cleanup_deletes_expired_entries(
         )
 
     cache.close()
-
 
 
 # Strategy for generating a list of unique cache entries (unique by cache key)
@@ -284,14 +282,10 @@ def test_clear_removes_all_entries(
 
     # Clear and verify returned count
     cleared = cache.clear()
-    assert cleared == n, (
-        f"clear() returned {cleared}, expected {n}"
-    )
+    assert cleared == n, f"clear() returned {cleared}, expected {n}"
 
     # Verify the table is empty
-    assert cache.stats["total"] == 0, (
-        f"Expected 0 entries after clear(), got {cache.stats['total']}"
-    )
+    assert cache.stats["total"] == 0, f"Expected 0 entries after clear(), got {cache.stats['total']}"
 
     cache.close()
 
@@ -324,7 +318,6 @@ def test_stats_report_accurate_counts(
 
     **Validates: Requirements 5.2, 5.4**
     """
-    import json
 
     db_path = tmp_path_factory.mktemp("cache") / "test.db"
     # Use a large TTL for initial cache creation so startup cleanup is a no-op
@@ -337,7 +330,7 @@ def test_stats_report_accurate_counts(
     # Set timestamps explicitly for ALL entries via raw SQL to avoid timing issues
     conn = cache._get_conn()
     expected_expired = 0
-    for question, model_name, model_id, response, token_usage, is_expired in entries:
+    for question, model_name, model_id, _response, _token_usage, is_expired in entries:
         key = _cache_key(question, model_name, model_id)
         if is_expired:
             # Clearly expired: age well beyond TTL
@@ -347,9 +340,7 @@ def test_stats_report_accurate_counts(
             # Clearly fresh: set created_at to now via SQL so it's in sync with
             # SQLite's datetime('now') used by the stats query
             age = 0
-        ts = (datetime.now(timezone.utc) - timedelta(seconds=age)).strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
+        ts = (datetime.now(timezone.utc) - timedelta(seconds=age)).strftime("%Y-%m-%d %H:%M:%S")
         conn.execute(
             "UPDATE responses SET created_at = ? WHERE cache_key = ?",
             (ts, key),
@@ -362,19 +353,15 @@ def test_stats_report_accurate_counts(
     result = cache.stats
     expected_total = len(entries)
 
-    assert result["total"] == expected_total, (
-        f"Expected total={expected_total}, got {result['total']}"
-    )
-    assert result["expired"] == expected_expired, (
-        f"Expected expired={expected_expired}, got {result['expired']}"
-    )
+    assert result["total"] == expected_total, f"Expected total={expected_total}, got {result['total']}"
+    assert result["expired"] == expected_expired, f"Expected expired={expected_expired}, got {result['expired']}"
 
     cache.close()
 
 
-import argparse
+import argparse  # noqa: E402
 
-from llm_council.cli import _resolve_ttl
+from llm_council.cli import _resolve_ttl  # noqa: E402
 
 
 # Feature: cache-ttl-invalidation, Property 3: TTL resolution precedence
@@ -398,17 +385,14 @@ def test_ttl_resolution_precedence(cli_ttl, config_ttl):
     result = _resolve_ttl(args, config)
 
     if cli_ttl is not None:
-        assert result == cli_ttl, (
-            f"CLI TTL should take precedence: expected {cli_ttl}, got {result}"
-        )
+        assert result == cli_ttl, f"CLI TTL should take precedence: expected {cli_ttl}, got {result}"
     elif config_ttl is not None:
-        assert result == config_ttl, (
-            f"Config TTL should be used when CLI is None: expected {config_ttl}, got {result}"
-        )
+        assert result == config_ttl, f"Config TTL should be used when CLI is None: expected {config_ttl}, got {result}"
     else:
         assert result == ResponseCache.DEFAULT_TTL, (
             f"Default TTL should be used when both are None: expected {ResponseCache.DEFAULT_TTL}, got {result}"
         )
+
 
 # Feature: cache-ttl-invalidation, Property 6: File size formatting
 @settings(max_examples=100)
@@ -430,9 +414,7 @@ def test_file_size_formatting(size_bytes):
         assert result.endswith(" bytes"), f"Expected 'bytes' suffix for {size_bytes}, got '{result}'"
         numeric_str = result.replace(" bytes", "")
         numeric_value = int(numeric_str)
-        assert numeric_value == size_bytes, (
-            f"Byte value should be exact: expected {size_bytes}, got {numeric_value}"
-        )
+        assert numeric_value == size_bytes, f"Byte value should be exact: expected {size_bytes}, got {numeric_value}"
     elif size_bytes < 1024 * 1024:
         # Should use "KB" suffix
         assert result.endswith(" KB"), f"Expected 'KB' suffix for {size_bytes}, got '{result}'"
