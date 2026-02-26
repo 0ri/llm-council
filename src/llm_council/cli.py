@@ -44,36 +44,34 @@ def load_config(config_path: str | None = None) -> dict:
                 break
 
     if config_path is None or not os.path.exists(config_path):
-        # Return default config with enhanced capabilities
+        # Return default config using OpenRouter (single API key covers all models)
         return {
             "council_models": [
                 {
                     "name": "Claude Opus 4.6",
-                    "provider": "bedrock",
-                    "model_id": "us.anthropic.claude-opus-4-6-v1:0",
-                    "budget_tokens": 10000,
+                    "provider": "openrouter",
+                    "model_id": "anthropic/claude-opus-4.6",
                 },
                 {
                     "name": "GPT-5.3-Codex",
-                    "provider": "poe",
-                    "bot_name": "GPT-5.3-Codex",
-                    "web_search": True,
-                    "reasoning_effort": "high",
+                    "provider": "openrouter",
+                    "model_id": "openai/gpt-5.3-codex",
                 },
                 {
                     "name": "Gemini-3.1-Pro",
-                    "provider": "poe",
-                    "bot_name": "Gemini-3.1-Pro",
-                    "web_search": True,
-                    "reasoning_effort": "high",
+                    "provider": "openrouter",
+                    "model_id": "google/gemini-3.1-pro-preview",
                 },
-                {"name": "Grok-4", "provider": "poe", "bot_name": "Grok-4"},
+                {
+                    "name": "Grok 4",
+                    "provider": "openrouter",
+                    "model_id": "x-ai/grok-4",
+                },
             ],
             "chairman": {
-                "name": "Claude Opus 4.6",
-                "provider": "bedrock",
-                "model_id": "us.anthropic.claude-opus-4-6-v1:0",
-                "budget_tokens": 10000,
+                "name": "Gemini-3.1-Pro",
+                "provider": "openrouter",
+                "model_id": "google/gemini-3.1-pro-preview",
             },
         }
 
@@ -203,7 +201,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dry-run", dest="dry_run", action="store_true", help="Preview config and costs, no API calls")
     parser.add_argument("--list-models", dest="list_models", action="store_true", help="List available models and exit")
     parser.add_argument("--flatten", dest="flatten", metavar="PATH", help="Flatten a directory and prepend to question")
-    parser.add_argument("--codemap", dest="codemap", action="store_true", help="With --flatten: extract structural skeleton (signatures, imports, classes) instead of full contents (~90%% fewer tokens)")
+    parser.add_argument("--codemap", dest="codemap", action="store_true", help="Extract signatures only")
     parser.add_argument("--question-file", dest="question_file", metavar="FILE", help="Read question from file")
     parser.add_argument("--seed", type=int, default=None, help="Seed for reproducible bootstrap confidence intervals")
     parser.add_argument("--no-cache", dest="no_cache", action="store_true", help="Disable local response cache")

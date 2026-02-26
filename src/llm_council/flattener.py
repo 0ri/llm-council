@@ -302,7 +302,7 @@ def _extract_generic_skeleton(content: str) -> str:
     result: list[str] = []
 
     # Always include first 3 non-empty lines for context
-    non_empty = [l for l in lines[:10] if l.strip()][:3]
+    non_empty = [ln for ln in lines[:10] if ln.strip()][:3]
     result.extend(non_empty)
 
     for line in lines:
@@ -461,19 +461,23 @@ def main() -> None:
             i += 2
         elif args[i].startswith("-"):
             print(f"Unknown flag: {args[i]}", file=sys.stderr)
-            print("Usage: flatten-project [--no-gitignore] [--codemap] [--max-file-size BYTES] PATH [PATH ...]", file=sys.stderr)
+            _usage = "Usage: flatten-project [--no-gitignore] [--codemap] [--max-file-size BYTES] PATH ..."
+            print(_usage, file=sys.stderr)
             sys.exit(1)
         else:
             paths.append(args[i])
             i += 1
 
     if not paths:
-        print("Usage: flatten-project [--no-gitignore] [--codemap] [--max-file-size BYTES] PATH [PATH ...]", file=sys.stderr)
+        _usage = "Usage: flatten-project [--no-gitignore] [--codemap] [--max-file-size BYTES] PATH ..."
+        print(_usage, file=sys.stderr)
         sys.exit(1)
 
     for path in paths:
         try:
-            result = flatten_directory(path, respect_gitignore=not no_gitignore, max_file_size=max_size, codemap=use_codemap)
+            result = flatten_directory(
+                path, respect_gitignore=not no_gitignore, max_file_size=max_size, codemap=use_codemap
+            )
         except (FileNotFoundError, NotADirectoryError) as e:
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)

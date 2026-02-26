@@ -314,9 +314,9 @@ class TestAggressiveTimeout:
                 [{"role": "user", "content": "test"}],
                 ctx,
                 soft_timeout=0.5,
-                # min_responses not specified, should default to 3
+                # min_responses not specified, defaults to len(models) = 4
             )
 
-            # 3 models should complete
+            # All 4 models should complete (default waits for all)
             completed = sum(1 for r in results.values() if r is not None)
-            assert completed == 3
+            assert completed == 4
