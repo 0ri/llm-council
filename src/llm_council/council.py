@@ -348,5 +348,4 @@ async def run_council(
         logger.error(f"Budget exceeded: {e}")
         return f"Error: Budget limit exceeded - {e}"
     finally:
-        await ctx.close()
-        await ctx.progress._cleanup()
+        await ctx.shutdown()

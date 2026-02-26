@@ -8,6 +8,7 @@ concurrent council runs do not share mutable state.
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass, field
 
 from .budget import BudgetGuard
@@ -18,6 +19,8 @@ from .providers import CircuitBreaker, Provider
 from .providers.bedrock import BedrockProvider
 from .providers.openrouter import OpenRouterProvider
 from .providers.poe import PoeProvider
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -39,6 +42,7 @@ class CouncilContext:
     budget_guard: BudgetGuard | None = None
     progress: ProgressManager = field(default_factory=ProgressManager)
     cache: ResponseCache | None = None
+    _shutdown_called: bool = field(default=False, init=False, repr=False)
 
     # ------------------------------------------------------------------
     # Lazy accessor helpers
@@ -79,6 +83,26 @@ class CouncilContext:
                 await close()
         if self.cache is not None:
             self.cache.close()
+
+    async def shutdown(self) -> None:
+        """Unified shutdown: close providers, cache, and progress manager.
+
+        Catches and logs exceptions at each step so all resources are
+        released regardless of individual failures. Idempotent.
+        """
+        if self._shutdown_called:
+            return
+        self._shutdown_called = True
+
+        try:
+            await self.close()
+        except Exception:
+            logger.exception("Error during close()")
+
+        try:
+            await self.progress.shutdown()
+        except Exception:
+            logger.exception("Error during progress shutdown")
 
     def get_circuit_breaker(self, identifier: str) -> CircuitBreaker:
         """Return a cached circuit breaker for *identifier*, creating it lazily."""
