@@ -189,6 +189,23 @@ llm-council --list-models
 llm-council --flatten ./src "Review this code for bugs"
 ```
 
+## Caching
+
+LLM Council includes a built-in SQLite-backed response cache that stores Stage 1 model responses to avoid redundant API calls.
+
+- **Enabled by default** — responses are cached automatically
+- **Cache location:** `~/.llm-council/cache.db`
+- **Cache key:** question + model name + model identifier (SHA-256 hashed)
+- **Disable with:** `--no-cache` flag
+
+```bash
+# Run with caching (default)
+llm-council "What is the capital of France?"
+
+# Run without caching
+llm-council --no-cache "What is the capital of France?"
+```
+
 ## Output Format
 
 ```markdown
@@ -220,7 +237,6 @@ This project was inspired by the desire to evaluate multiple LLMs side by side a
 
 ## Known Limitations
 
-- **No built-in caching** - repeated queries re-query all models, increasing latency and API costs
 - **No streaming output** - waits for full responses from all models before displaying results
 
 ## Contributing

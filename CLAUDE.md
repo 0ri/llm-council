@@ -51,6 +51,7 @@ src/llm_council/                      # Main package
 │   ├── poe.py                        # Poe.com provider
 │   └── openrouter.py                 # OpenRouter provider
 ├── aggregation.py                    # Ranking aggregation algorithms
+├── cache.py                          # SQLite response cache (~/.llm-council/cache.db)
 ├── flattener.py                      # Project directory flattener
 ├── parsing.py                        # Response parsing utilities
 ├── security.py                       # Injection hardening
@@ -192,6 +193,9 @@ llm-council --dry-run "question"
 # List available models from all providers
 llm-council --list-models
 
+# Disable response cache
+llm-council --no-cache "question"
+
 # Flatten a codebase and ask for review
 llm-council --flatten ./src "Review this code for bugs"
 
@@ -240,6 +244,9 @@ Bedrock for Anthropic models (already configured, no extra API key). Poe.com for
 
 ### Subagent Execution
 The skill spawns a subagent to run the council, preserving the main conversation's context window.
+
+### Response Caching
+Built-in SQLite response cache stores Stage 1 responses at `~/.llm-council/cache.db`. Enabled by default; disable with `--no-cache`.
 
 ### Graceful Degradation
 If a model fails, the council continues with remaining models rather than failing entirely.
