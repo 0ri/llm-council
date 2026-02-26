@@ -2,16 +2,24 @@
 
 try:
     from llm_council.parsing import (
+        _parse_comma_separated_ranking,
+        _parse_headerless_numbered_ranking,
         _parse_inline_ranking,
         _parse_json_ranking,
         _parse_numbered_ranking,
+        _parse_ordinal_ranking,
+        format_ranking,
         parse_ranking_from_text,
     )
 except ImportError:
     from council import (
+        _parse_comma_separated_ranking,
+        _parse_headerless_numbered_ranking,
         _parse_inline_ranking,
         _parse_json_ranking,
         _parse_numbered_ranking,
+        _parse_ordinal_ranking,
+        format_ranking,
         parse_ranking_from_text,
     )
 
@@ -140,3 +148,135 @@ class TestParseRankingFromText:
         result, is_valid = parse_ranking_from_text("I refuse to rank these.")
         assert result == []
         assert is_valid is False
+
+
+class TestParseHeaderlessNumberedRanking:
+    def test_happy_path(self):
+        text = "1. Response B\n2. Response A\n3. Response C"
+        assert _parse_headerless_numbered_ranking(text) == ["Response B", "Response A", "Response C"]
+
+    def test_with_parenthesis_delimiter(self):
+        text = "1) Response C\n2) Response A\n3) Response B"
+        assert _parse_headerless_numbered_ranking(text) == ["Response C", "Response A", "Response B"]
+
+    def test_non_sequential_numbers(self):
+        text = "3. Response A\n1. Response C\n7. Response B"
+        assert _parse_headerless_numbered_ranking(text) == ["Response A", "Response C", "Response B"]
+
+    def test_defers_to_header_parser(self):
+        text = "FINAL RANKING:\n1. Response A\n2. Response B"
+        assert _parse_headerless_numbered_ranking(text) is None
+
+    def test_no_matches(self):
+        assert _parse_headerless_numbered_ranking("No numbered list here.") is None
+
+    def test_leading_whitespace(self):
+        text = "  1. Response A\n  2. Response B\n  3. Response C"
+        assert _parse_headerless_numbered_ranking(text) == ["Response A", "Response B", "Response C"]
+
+
+class TestParseOrdinalRanking:
+    def test_happy_path(self):
+        text = "First is Response C, second is Response A, third is Response B."
+        assert _parse_ordinal_ranking(text) == ["Response C", "Response A", "Response B"]
+
+    def test_case_insensitive(self):
+        text = "FIRST place goes to Response B. SECOND place goes to Response A."
+        assert _parse_ordinal_ranking(text) == ["Response B", "Response A"]
+
+    def test_duplicate_positions_rejected(self):
+        text = "First is Response A. First is Response B."
+        assert _parse_ordinal_ranking(text) is None
+
+    def test_no_ordinals(self):
+        assert _parse_ordinal_ranking("Response A is great.") is None
+
+    def test_reverse_order_in_text(self):
+        # When label appears before ordinal in a clear sentence structure
+        text = "Response B is the first choice. Response A is the second choice."
+        assert _parse_ordinal_ranking(text) == ["Response B", "Response A"]
+
+
+class TestParseCommaSeparatedRanking:
+    def test_happy_path(self):
+        text = "Response B, Response A, Response C"
+        assert _parse_comma_separated_ranking(text) == ["Response B", "Response A", "Response C"]
+
+    def test_with_trailing_and(self):
+        text = "Response A, Response C and Response B"
+        assert _parse_comma_separated_ranking(text) == ["Response A", "Response C", "Response B"]
+
+    def test_duplicates_rejected(self):
+        text = "Response A, Response B, Response A"
+        assert _parse_comma_separated_ranking(text) is None
+
+    def test_fewer_than_three(self):
+        text = "Response A, Response B"
+        assert _parse_comma_separated_ranking(text) is None
+
+    def test_no_matches(self):
+        assert _parse_comma_separated_ranking("No responses here.") is None
+
+    def test_multiline_picks_qualifying_line(self):
+        text = "Some preamble.\nResponse C, Response A, Response B\nSome epilogue."
+        assert _parse_comma_separated_ranking(text) == ["Response C", "Response A", "Response B"]
+
+
+class TestFormatRanking:
+    def test_happy_path(self):
+        assert format_ranking(["Response A", "Response B", "Response C"]) == (
+            "1. Response A\n2. Response B\n3. Response C"
+        )
+
+    def test_empty_list(self):
+        assert format_ranking([]) == ""
+
+    def test_single_item(self):
+        assert format_ranking(["Response A"]) == "1. Response A"
+
+    def test_round_trip(self):
+        ballot = ["Response C", "Response A", "Response B"]
+        formatted = format_ranking(ballot)
+        parsed, reliable = parse_ranking_from_text(formatted, num_responses=3)
+        assert format_ranking(parsed) == formatted
+        assert reliable is True
+
+
+class TestFallbackChainOrdering:
+    def test_headerless_numbered_before_inline(self):
+        """Headerless numbered list should be reliable, not fall to inline."""
+        text = "1. Response A\n2. Response B\n3. Response C"
+        result, reliable = parse_ranking_from_text(text, num_responses=3)
+        assert result == ["Response A", "Response B", "Response C"]
+        assert reliable is True
+
+    def test_ordinal_before_inline(self):
+        text = "First is Response B, second is Response A, third is Response C."
+        result, reliable = parse_ranking_from_text(text, num_responses=3)
+        assert result == ["Response B", "Response A", "Response C"]
+        assert reliable is True
+
+    def test_comma_separated_before_inline(self):
+        text = "My ranking: Response C, Response B, Response A"
+        result, reliable = parse_ranking_from_text(text, num_responses=3)
+        assert result == ["Response C", "Response B", "Response A"]
+        assert reliable is True
+
+    def test_json_still_wins_over_new_parsers(self):
+        text = '```json\n{"ranking": ["Response A", "Response B", "Response C"]}\n```\n1. Response C\n2. Response B\n3. Response A'
+        result, reliable = parse_ranking_from_text(text, num_responses=3)
+        assert result == ["Response A", "Response B", "Response C"]
+        assert reliable is True
+
+    def test_numbered_with_header_wins_over_headerless(self):
+        text = "1. Response C\n2. Response B\nFINAL RANKING:\n1. Response A\n2. Response B\n3. Response C"
+        result, reliable = parse_ranking_from_text(text, num_responses=3)
+        assert result == ["Response A", "Response B", "Response C"]
+        assert reliable is True
+
+    def test_parser_exception_falls_through(self):
+        """If a parser raises, the chain continues to the next one."""
+        text = "Response A, Response B, Response C"
+        result, reliable = parse_ranking_from_text(text, num_responses=3)
+        assert result == ["Response A", "Response B", "Response C"]
+        assert reliable is True
