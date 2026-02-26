@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import json as _json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
+
+if TYPE_CHECKING:
+    from . import StreamResult
 
 logger = logging.getLogger("llm-council")
 
@@ -126,6 +130,106 @@ class OpenRouterProvider:
             return text, token_usage
 
         return await _query_inner()
+
+    def astream(self, prompt: str, model_config: dict, timeout: int) -> StreamResult:
+        """Stream a model response via OpenRouter using SSE.
+
+        Returns:
+            StreamResult wrapping an async generator of text chunks.
+        """
+        from . import MAX_RETRIES, StreamResult
+
+        model_id = model_config["model_id"]
+        messages = model_config.get("_messages", [{"role": "user", "content": prompt}])
+        system_message = model_config.get("_system_message")
+        temperature = model_config.get("temperature")
+        max_tokens = model_config.get("max_tokens", 8192)
+
+        usage_info: dict[str, int] = {}
+
+        async def _generate():
+            @retry(
+                stop=stop_after_attempt(MAX_RETRIES),
+                wait=wait_exponential(multiplier=1, min=2, max=10),
+                retry=retry_if_exception(is_retryable_openrouter_error),
+                reraise=True,
+            )
+            async def _stream_inner():
+                client = self._get_client()
+
+                api_messages: list[dict[str, str]] = []
+                if system_message:
+                    api_messages.append({"role": "system", "content": system_message})
+                for msg in messages:
+                    api_messages.append({"role": msg["role"], "content": msg["content"]})
+
+                body: dict[str, Any] = {
+                    "model": model_id,
+                    "messages": api_messages,
+                    "max_tokens": max_tokens,
+                    "stream": True,
+                }
+                if temperature is not None:
+                    body["temperature"] = temperature
+
+                return await client.send(
+                    client.build_request("POST", "/chat/completions", json=body),
+                    stream=True,
+                )
+
+            resp = await asyncio.wait_for(_stream_inner(), timeout=timeout)
+
+            try:
+                if resp.status_code != 200:
+                    error_text = ""
+                    async for chunk in resp.aiter_text():
+                        error_text += chunk
+                        if len(error_text) > 500:
+                            break
+                    raise OpenRouterAPIError(resp.status_code, error_text[:500])
+
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    payload = line[6:].strip()
+                    if payload == "[DONE]":
+                        break
+                    try:
+                        data = _json.loads(payload)
+                    except _json.JSONDecodeError:
+                        continue
+
+                    # Extract usage from the final chunk if present
+                    chunk_usage = data.get("usage")
+                    if chunk_usage:
+                        usage_info["input_tokens"] = chunk_usage.get("prompt_tokens", 0)
+                        usage_info["output_tokens"] = chunk_usage.get("completion_tokens", 0)
+
+                    choices = data.get("choices", [])
+                    if choices:
+                        delta = choices[0].get("delta", {})
+                        content = delta.get("content")
+                        if content:
+                            yield content
+            finally:
+                await resp.aclose()
+
+        gen = _generate()
+        result = StreamResult(gen)
+
+        original_anext = gen.__anext__
+
+        async def patched_anext():
+            try:
+                return await original_anext()
+            except StopAsyncIteration:
+                if usage_info:
+                    result.usage = usage_info
+                raise
+
+        result._aiter.__anext__ = patched_anext  # type: ignore[attr-defined]
+
+        return result
 
     async def list_models(self) -> list[dict[str, str]]:
         """List available models from OpenRouter.

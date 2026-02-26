@@ -30,6 +30,41 @@ class Provider(typing.Protocol):
     async def query(self, prompt: str, model_config: dict, timeout: int) -> tuple[str, dict | None]: ...
 
 
+class StreamResult:
+    """Wrapper for streaming results that captures usage metadata."""
+
+    def __init__(self, aiter: typing.AsyncIterator[str]):
+        self._aiter = aiter
+        self.usage: dict[str, typing.Any] | None = None
+        self.accumulated: str = ""
+
+    def __aiter__(self) -> StreamResult:
+        return self
+
+    async def __anext__(self) -> str:
+        chunk = await self._aiter.__anext__()
+        self.accumulated += chunk
+        return chunk
+
+
+@typing.runtime_checkable
+class StreamingProvider(Provider, typing.Protocol):
+    """Protocol for providers that support streaming."""
+
+    def astream(self, prompt: str, model_config: dict, timeout: int) -> StreamResult: ...
+
+
+def fallback_astream(provider: Provider, prompt: str, model_config: dict, timeout: int) -> StreamResult:
+    """Create a StreamResult that falls back to query() for non-streaming providers."""
+
+    async def _single_chunk() -> typing.AsyncIterator[str]:
+        text, usage = await provider.query(prompt, model_config, timeout)
+        yield text
+
+    result = StreamResult(_single_chunk())
+    return result
+
+
 class CircuitBreaker:
     """Simple circuit breaker for provider failure detection.
 
@@ -75,6 +110,9 @@ __all__ = [
     "MODEL_TIMEOUT",
     "SOFT_TIMEOUT",
     "OpenRouterProvider",
-    "Provider",
     "PoeProvider",
+    "Provider",
+    "StreamResult",
+    "StreamingProvider",
+    "fallback_astream",
 ]

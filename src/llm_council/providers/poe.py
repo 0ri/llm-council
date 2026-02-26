@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import TYPE_CHECKING
 
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
+
+if TYPE_CHECKING:
+    from . import StreamResult
 
 logger = logging.getLogger("llm-council")
 
@@ -132,3 +136,67 @@ class PoeProvider:
         result = await _query_poe_inner()
         # Poe doesn't provide token counts, return None for usage
         return result, None
+
+    def astream(self, prompt: str, model_config: dict, timeout: int) -> StreamResult:
+        """Stream a Poe.com bot response, yielding each partial text chunk.
+
+        Returns:
+            StreamResult wrapping an async generator of text chunks.
+            Usage is always None for Poe.
+        """
+        from . import StreamResult
+
+        bot_name = model_config["bot_name"]
+        skip_flags = model_config.get("_skip_flags", False)
+        web_search = False if skip_flags else model_config.get("web_search", False)
+        reasoning_effort = None if skip_flags else model_config.get("reasoning_effort")
+
+        messages = model_config.get("_messages", [{"role": "user", "content": prompt}])
+        system_message = model_config.get("_system_message")
+
+        import fastapi_poe as fp
+        from fastapi_poe import ProtocolMessage
+
+        async def _generate():
+            protocol_messages = []
+
+            if system_message:
+                protocol_messages.append(ProtocolMessage(role="system", content=system_message))
+
+            for i, msg in enumerate(messages):
+                role = msg["role"]
+                if role == "assistant":
+                    role = "bot"
+
+                content = msg["content"]
+
+                if i == 0 and role == "user":
+                    flags = []
+                    if web_search:
+                        if "Gemini" in bot_name:
+                            flags.append("--web_search true")
+                        else:
+                            flags.append("--web_search")
+
+                    if reasoning_effort:
+                        if "Gemini" in bot_name:
+                            flags.append(f"--thinking_level {reasoning_effort}")
+                        else:
+                            flags.append(f"--reasoning_effort {reasoning_effort}")
+
+                    if flags:
+                        content = content + "\n\n" + " ".join(flags)
+
+                protocol_messages.append(ProtocolMessage(role=role, content=content))
+
+            async for partial in fp.get_bot_response(
+                messages=protocol_messages,
+                bot_name=bot_name,
+                api_key=self.api_key,
+            ):
+                yield partial.text
+
+        result = StreamResult(_generate())
+        # Poe doesn't provide token counts
+        result.usage = None
+        return result

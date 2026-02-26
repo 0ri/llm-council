@@ -42,6 +42,7 @@ class StageProgress:
     models: dict[str, ModelStatus] = field(default_factory=dict)
     model_start_times: dict[str, float] = field(default_factory=dict)
     model_elapsed: dict[str, float] = field(default_factory=dict)
+    model_responses: dict[str, str] = field(default_factory=dict)
     start_time: float = field(default_factory=time.time)
     completed: bool = False
     summary: str | None = None
@@ -109,8 +110,22 @@ class ProgressManager:
             n = len(models)
             self._log(f"Stage {stage}/3: {description} ({n} model{'s' if n != 1 else ''})...")
 
-    async def update_model(self, model: str, status: ModelStatus, elapsed: float | None = None):
-        """Update a model's status."""
+    async def update_model(
+        self,
+        model: str,
+        status: ModelStatus,
+        elapsed: float | None = None,
+        response_text: str | None = None,
+    ):
+        """Update a model's status.
+
+        Args:
+            model: The model name.
+            status: The new status.
+            elapsed: Optional elapsed time in seconds.
+            response_text: Optional response text to display when status is DONE.
+                          Used for Stage 1 incremental display.
+        """
         async with self._lock:
             if self.current_stage is None:
                 return
@@ -119,12 +134,16 @@ class ProgressManager:
                 self.current_stage.model_start_times[model] = time.time()
             if elapsed is not None:
                 self.current_stage.model_elapsed[model] = elapsed
+            if status == ModelStatus.DONE and response_text is not None:
+                self.current_stage.model_responses[model] = response_text
 
         if not self.is_tty and self.current_stage:
             sn = self.current_stage.stage_num
             if status == ModelStatus.DONE:
                 t = f" ({elapsed:.1f}s)" if elapsed is not None else ""
                 self._log(f"Stage {sn}/3: \u2713 {model} done{t}")
+                if response_text is not None:
+                    self._log_response(model, response_text)
             elif status == ModelStatus.FAILED:
                 t = f" ({elapsed:.1f}s)" if elapsed is not None else ""
                 self._log(f"Stage {sn}/3: \u2717 {model} failed{t}")
@@ -207,6 +226,12 @@ class ProgressManager:
                 elapsed = stage.model_elapsed.get(model, 0)
                 output.append("\u2713", style="green")
                 output.append(f" {model:<22} done ({elapsed:.1f}s)\n", style="green")
+                # Show response text if available (Stage 1 incremental display)
+                if model in stage.model_responses:
+                    response = stage.model_responses[model]
+                    preview = response[:200] + "..." if len(response) > 200 else response
+                    for line in preview.split("\n"):
+                        output.append(f"    {line}\n", style="dim green")
             elif status == ModelStatus.FAILED:
                 elapsed = stage.model_elapsed.get(model, 0)
                 output.append("\u2717", style="red")
@@ -236,3 +261,29 @@ class ProgressManager:
         """Emit a simple log line to stderr (non-TTY mode)."""
         ts = time.strftime("%H:%M:%S")
         print(f"[{ts}] {message}", file=sys.stderr, flush=True)
+
+    def _log_response(self, model: str, response_text: str):
+        """Emit a model's response text to stderr (non-TTY mode)."""
+        preview = response_text[:200] + "..." if len(response_text) > 200 else response_text
+        for line in preview.split("\n"):
+            print(f"  {line}", file=sys.stderr, flush=True)
+
+    def write_chunk(self, text: str):
+        """Write a text chunk directly to stdout for Stage 3 streaming."""
+        sys.stdout.write(text)
+        sys.stdout.flush()
+
+    async def pause_live(self):
+        """Pause/stop the Rich Live display before Stage 3 streaming begins."""
+        if self.is_tty:
+            if self._render_task and not self._render_task.done():
+                self._render_task.cancel()
+                try:
+                    await self._render_task
+                except asyncio.CancelledError:
+                    pass
+                self._render_task = None
+            if self._live:
+                self._live.update(self._render_tty())
+                self._live.stop()
+                self._live = None
