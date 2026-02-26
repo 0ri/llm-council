@@ -186,6 +186,33 @@ async def _list_available_models() -> None:
         print("  (OPENROUTER_API_KEY not set)", file=sys.stderr)
 
 
+def _positive_int(value: str) -> int:
+    """Argparse type for non-negative integers."""
+    ivalue = int(value)
+    if ivalue < 0:
+        raise argparse.ArgumentTypeError(f"invalid non-negative int value: '{value}'")
+    return ivalue
+
+
+def _resolve_ttl(args: argparse.Namespace, config: dict) -> int:
+    """Return TTL in seconds: CLI flag > config file > default (86400)."""
+    from .cache import ResponseCache
+
+    if args.cache_ttl is not None:
+        return args.cache_ttl
+    return config.get("cache_ttl", ResponseCache.DEFAULT_TTL)
+
+
+def _format_file_size(size_bytes: int) -> str:
+    """Format byte count as human-readable string."""
+    if size_bytes < 1024:
+        return f"{size_bytes} bytes"
+    elif size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    else:
+        return f"{size_bytes / (1024 * 1024):.1f} MB"
+
+
 def _build_parser() -> argparse.ArgumentParser:
     """Build the argument parser."""
     parser = argparse.ArgumentParser(
@@ -205,6 +232,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--question-file", dest="question_file", metavar="FILE", help="Read question from file")
     parser.add_argument("--seed", type=int, default=None, help="Seed for reproducible bootstrap confidence intervals")
     parser.add_argument("--no-cache", dest="no_cache", action="store_true", help="Disable local response cache")
+    parser.add_argument("--cache-ttl", dest="cache_ttl", type=_positive_int, default=None, metavar="SECONDS", help="Cache TTL in seconds (0 = bypass cache reads)")
+    parser.add_argument("--clear-cache", dest="clear_cache", action="store_true", help="Delete all cache entries and exit")
+    parser.add_argument("--cache-stats", dest="cache_stats", action="store_true", help="Print cache statistics and exit")
     return parser
 
 
@@ -218,6 +248,38 @@ def main():
         setup_logging(verbose=args.verbose)
         asyncio.run(_list_available_models())
         return
+
+    # --clear-cache works without a question
+    if args.clear_cache:
+        from .cache import DEFAULT_CACHE_DB, ResponseCache
+
+        if not DEFAULT_CACHE_DB.exists():
+            print("Cache is already empty", file=sys.stderr)
+            sys.exit(0)
+        cache = ResponseCache()
+        count = cache.clear()
+        size = _format_file_size(DEFAULT_CACHE_DB.stat().st_size)
+        print(f"Cleared {count} cache entries ({size})", file=sys.stderr)
+        cache.close()
+        sys.exit(0)
+
+    # --cache-stats works without a question
+    if args.cache_stats:
+        from .cache import DEFAULT_CACHE_DB, ResponseCache
+
+        if not DEFAULT_CACHE_DB.exists():
+            print("No cache database found", file=sys.stderr)
+            sys.exit(0)
+        config = load_config(args.config)
+        resolved_ttl = _resolve_ttl(args, config)
+        cache = ResponseCache(ttl=resolved_ttl)
+        s = cache.stats
+        size = _format_file_size(DEFAULT_CACHE_DB.stat().st_size)
+        print(f"Cache entries: {s['total']}", file=sys.stderr)
+        print(f"Expired entries: {s['expired']}", file=sys.stderr)
+        print(f"Database size: {size}", file=sys.stderr)
+        cache.close()
+        sys.exit(0)
 
     # Read question from file if --question-file is given
     if args.question_file:
@@ -267,6 +329,9 @@ def main():
             )
         question = f"<project>\n{flattened.markdown}\n</project>\n\n{question}"
 
+    # Resolve cache TTL
+    resolved_ttl = _resolve_ttl(args, config)
+
     # Run council
     result = asyncio.run(
         run_council(
@@ -277,6 +342,7 @@ def main():
             max_stage=args.stage,
             seed=args.seed,
             use_cache=not args.no_cache,
+            cache_ttl=resolved_ttl,
         )
     )
 

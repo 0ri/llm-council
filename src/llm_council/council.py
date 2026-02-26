@@ -154,6 +154,7 @@ async def run_council(
     max_stage: int = 3,
     seed: int | None = None,
     use_cache: bool = True,
+    cache_ttl: int = 86400,
 ) -> str:
     """Run the council process up to the specified stage.
 
@@ -166,6 +167,7 @@ async def run_council(
         max_stage: Maximum stage to run (1, 2, or 3). Default: 3 (full run).
         seed: Optional seed for reproducible bootstrap CI.
         use_cache: If True, use local SQLite cache for Stage 1 responses.
+        cache_ttl: TTL in seconds for cached responses. Default: 86400 (24 hours).
 
     Returns:
         Formatted council output string
@@ -211,7 +213,7 @@ async def run_council(
             budget_guard=create_budget_guard(config),
             progress=ProgressManager(),
             stage2_max_retries=config.get("stage2_retries", 1),
-            cache=ResponseCache() if use_cache else None,
+            cache=ResponseCache(ttl=cache_ttl) if use_cache else None,
         )
 
     if ctx.budget_guard:

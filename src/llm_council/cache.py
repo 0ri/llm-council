@@ -24,9 +24,12 @@ def _cache_key(question: str, model_name: str, model_id: str) -> str:
 class ResponseCache:
     """SQLite-backed cache for model responses."""
 
-    def __init__(self, db_path: str | Path = DEFAULT_CACHE_DB):
+    DEFAULT_TTL = 86400  # 24 hours in seconds
+
+    def __init__(self, db_path: str | Path = DEFAULT_CACHE_DB, ttl: int = DEFAULT_TTL):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.ttl = ttl
         self._conn: sqlite3.Connection | None = None
 
     def _get_conn(self) -> sqlite3.Connection:
@@ -42,17 +45,27 @@ class ResponseCache:
                 )
             """)
             self._conn.commit()
+            # Startup cleanup of expired entries
+            cursor = self._conn.execute(
+                "DELETE FROM responses WHERE created_at <= datetime('now', ? || ' seconds')",
+                (str(-self.ttl),),
+            )
+            if cursor.rowcount > 0:
+                logger.debug(f"Cleaned up {cursor.rowcount} expired cache entries")
+            self._conn.commit()
         return self._conn
 
     def get(self, question: str, model_name: str, model_id: str) -> tuple[str, dict[str, Any] | None] | None:
-        """Look up a cached response. Returns (response_text, token_usage) or None."""
+        """Look up a cached response. Returns (response_text, token_usage) or None if expired/missing."""
         key = _cache_key(question, model_name, model_id)
         conn = self._get_conn()
         row = conn.execute(
-            "SELECT response, token_usage FROM responses WHERE cache_key = ?",
-            (key,),
+            "SELECT response, token_usage FROM responses WHERE cache_key = ? AND created_at > datetime('now', ? || ' seconds')",
+            (key, str(-self.ttl)),
         ).fetchone()
         if row is None:
+            conn.execute("DELETE FROM responses WHERE cache_key = ?", (key,))
+            conn.commit()
             return None
         response = row[0]
         token_usage = json.loads(row[1]) if row[1] else None
@@ -77,6 +90,14 @@ class ResponseCache:
         conn.commit()
         logger.debug(f"Cached response for {model_name}")
 
+    def clear(self) -> int:
+        """Delete all rows from responses table. Returns count of deleted rows."""
+        conn = self._get_conn()
+        cursor = conn.execute("DELETE FROM responses")
+        count = cursor.rowcount
+        conn.commit()
+        return count
+
     def close(self) -> None:
         """Close the database connection."""
         if self._conn is not None:
@@ -85,7 +106,13 @@ class ResponseCache:
 
     @property
     def stats(self) -> dict[str, int]:
-        """Return cache statistics."""
+        """Return cache statistics including expired count."""
         conn = self._get_conn()
-        row = conn.execute("SELECT COUNT(*) FROM responses").fetchone()
-        return {"entries": row[0] if row else 0}
+        total_row = conn.execute("SELECT COUNT(*) FROM responses").fetchone()
+        total = total_row[0] if total_row else 0
+        expired_row = conn.execute(
+            "SELECT COUNT(*) FROM responses WHERE created_at <= datetime('now', ? || ' seconds')",
+            (str(-self.ttl),),
+        ).fetchone()
+        expired = expired_row[0] if expired_row else 0
+        return {"total": total, "expired": expired}

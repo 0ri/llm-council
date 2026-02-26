@@ -69,11 +69,11 @@ class TestResponseCache:
     def test_stats(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             cache = ResponseCache(Path(tmpdir) / "test.db")
-            assert cache.stats["entries"] == 0
+            assert cache.stats["total"] == 0
 
             cache.put("q1", "m1", "id1", "a1", None)
             cache.put("q2", "m2", "id2", "a2", None)
-            assert cache.stats["entries"] == 2
+            assert cache.stats["total"] == 2
             cache.close()
 
     def test_persists_across_instances(self):
