@@ -2,13 +2,14 @@
 
 Defines ``CouncilConfig`` (top-level config with discriminated-union model
 entries), provider-specific configs (``BedrockModelConfig``,
-``PoeModelConfig``, ``OpenRouterModelConfig``), and stage result types
-(``Stage1Result``, ``Stage2Result``, ``Stage3Result``, ``AggregateRanking``).
+``PoeModelConfig``, ``OpenRouterModelConfig``), ``BudgetConfig``, and stage
+result types (``Stage1Result``, ``Stage2Result``, ``Stage3Result``,
+``AggregateRanking``).
 """
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -50,21 +51,22 @@ class OpenRouterModelConfig(BaseModel):
 ModelConfig = BedrockModelConfig | PoeModelConfig | OpenRouterModelConfig
 
 
+class BudgetConfig(BaseModel):
+    """Budget controls for limiting token usage and cost."""
+
+    max_tokens: Annotated[int, Field(gt=0)] | None = None
+    max_cost_usd: Annotated[float, Field(gt=0)] | None = None
+    input_cost_per_1k: Annotated[float, Field(ge=0)] = 0.01
+    output_cost_per_1k: Annotated[float, Field(ge=0)] = 0.03
+
+
 class CouncilConfig(BaseModel):
     """Top-level council configuration for a deliberation run.
 
-    Wraps the list of council member models and the designated chairman
-    model.  Typically constructed from a ``council-config.json`` file via
+    Wraps the list of council member models, the designated chairman
+    model, and operational settings (budget, caching, timeouts).
+    Typically constructed from a ``council-config.json`` file via
     ``CouncilConfig(**json.load(f))``.
-
-    Args:
-        council_models: Non-empty list of model configurations.  Each
-            entry is a discriminated union (``BedrockModelConfig``,
-            ``PoeModelConfig``, or ``OpenRouterModelConfig``) selected
-            by the ``provider`` field.
-        chairman: Model configuration for the chairman that performs the
-            Stage 3 synthesis.  Uses the same discriminated-union type
-            as *council_models*.
 
     Raises:
         pydantic.ValidationError: If *council_models* is empty, a
@@ -74,6 +76,11 @@ class CouncilConfig(BaseModel):
 
     council_models: list[ModelConfig] = Field(min_length=1)
     chairman: ModelConfig
+    budget: BudgetConfig | None = None
+    cache_ttl: int = 86400
+    soft_timeout: float = 300
+    min_responses: int | None = None
+    stage2_retries: int = 1
 
 
 class Stage1Result(BaseModel):
