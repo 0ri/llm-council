@@ -51,7 +51,7 @@ class _MockStreamingProvider:
             "The council has deliberated. The meaning of life involves philosophy, purpose, and happiness."
         )
 
-    async def query(self, prompt: str, model_config: dict, timeout: int) -> tuple[str, dict | None]:
+    async def query(self, prompt: str, model_config: dict, timeout: int, **kwargs) -> tuple[str, dict | None]:
         self._call_count += 1
         name = model_config.get("name", "unknown")
         if self._call_count <= 3:
@@ -62,7 +62,7 @@ class _MockStreamingProvider:
         else:
             return self._synthesis, None
 
-    def astream(self, prompt: str, model_config: dict, timeout: int) -> StreamResult:
+    def astream(self, prompt: str, model_config: dict, timeout: int, **kwargs) -> StreamResult:
         """Stream the chairman synthesis as multiple chunks."""
         synthesis = self._synthesis
         self._call_count += 1
@@ -97,7 +97,7 @@ class _MockFailingStreamProvider:
         }
         self._synthesis = "Fallback synthesis after streaming error."
 
-    async def query(self, prompt: str, model_config: dict, timeout: int) -> tuple[str, dict | None]:
+    async def query(self, prompt: str, model_config: dict, timeout: int, **kwargs) -> tuple[str, dict | None]:
         self._call_count += 1
         name = model_config.get("name", "unknown")
         if self._call_count <= 3:
@@ -108,7 +108,7 @@ class _MockFailingStreamProvider:
         else:
             return self._synthesis, None
 
-    def astream(self, prompt: str, model_config: dict, timeout: int) -> StreamResult:
+    def astream(self, prompt: str, model_config: dict, timeout: int, **kwargs) -> StreamResult:
         """Stream that fails mid-way through."""
         self._call_count += 1
 

@@ -375,4 +375,25 @@ def main():
     )
 
     # Output result
-    print(result)
+    if args.stream:
+        # Synthesis was already streamed to stdout via on_chunk callback.
+        # Print only the rankings/metadata portion to avoid duplicate output.
+        marker = "### Synthesized Answer"
+        idx = result.find(marker)
+        if idx != -1:
+            # Print a newline to separate streamed synthesis from rankings
+            print()
+            # Print rankings (everything before the synthesis section)
+            rankings_part = result[:idx].rstrip()
+            if rankings_part:
+                print(rankings_part)
+            # Preserve the manifest comment block if present
+            manifest_marker = "\n<!-- Run Manifest"
+            manifest_idx = result.find(manifest_marker)
+            if manifest_idx != -1:
+                print(result[manifest_idx:])
+        else:
+            # Marker not found (e.g. stage < 3), print everything
+            print(result)
+    else:
+        print(result)

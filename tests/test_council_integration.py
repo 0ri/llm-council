@@ -43,7 +43,7 @@ class TestRunCouncilIntegration:
         }
         call_count = {"stage": 1}
 
-        async def mock_query(prompt, model_config, timeout):
+        async def mock_query(prompt, model_config, timeout, **kwargs):
             name = model_config.get("name", "unknown")
             if call_count["stage"] <= 3:
                 call_count["stage"] += 1
@@ -74,7 +74,7 @@ class TestRunCouncilIntegration:
     async def test_graceful_degradation_on_model_failure(self, sample_config):
         call_count = {"n": 0}
 
-        async def mock_query(prompt, model_config, timeout):
+        async def mock_query(prompt, model_config, timeout, **kwargs):
             call_count["n"] += 1
             name = model_config.get("name", "unknown")
             if name == "Model-B":

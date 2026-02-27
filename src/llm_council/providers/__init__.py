@@ -9,12 +9,26 @@ implementations live in the ``bedrock``, ``openrouter``, and ``poe`` sub-modules
 
 from __future__ import annotations
 
+import dataclasses
 import time as _time
 import typing
 
 from .bedrock import BedrockProvider
 from .openrouter import OpenRouterProvider
 from .poe import PoeProvider
+
+
+@dataclasses.dataclass(slots=True)
+class ProviderRequest:
+    """Typed request object passed alongside model_config to providers.
+
+    Replaces the old pattern of injecting ``_messages``, ``_system_message``,
+    and ``_skip_flags`` as private keys into the model config dict.
+    """
+
+    messages: list[dict[str, str]]
+    system_message: str | None = None
+    suppress_provider_flags: bool = False
 
 # Configurable defaults
 DEFAULT_REGION = "us-east-1"
@@ -37,7 +51,8 @@ class Provider(typing.Protocol):
     Every concrete provider (Bedrock, OpenRouter, Poe) satisfies this
     protocol by implementing the ``query`` method. The council pipeline
     dispatches Stage 1 and Stage 2 calls through this interface, passing
-    a prompt string, provider-specific model configuration, and a timeout.
+    a prompt string, provider-specific model configuration, a timeout,
+    and a typed ``ProviderRequest`` containing messages and metadata.
 
     Implementations should return the model's text response along with
     optional usage metadata (token counts, cost estimates). If the
@@ -45,7 +60,13 @@ class Provider(typing.Protocol):
     exception rather than returning an empty string.
     """
 
-    async def query(self, prompt: str, model_config: dict, timeout: int) -> tuple[str, dict | None]:
+    async def query(
+        self,
+        prompt: str,
+        model_config: dict,
+        timeout: int,
+        request: ProviderRequest | None = None,
+    ) -> tuple[str, dict | None]:
         """Send a prompt to the language model and return its response.
 
         Args:
@@ -58,6 +79,9 @@ class Provider(typing.Protocol):
                 ``model_id``, ``temperature``, and ``max_tokens``.
             timeout: Maximum number of seconds to wait for a response
                 before raising a timeout error.
+            request: Optional typed request containing messages,
+                system_message, and flags. When provided, providers
+                should use these instead of extracting from model_config.
 
         Returns:
             A tuple of (response_text, usage_metadata). ``response_text``
@@ -92,6 +116,36 @@ class StreamResult:
         return chunk
 
 
+class UsageTrackingStream:
+    """Wraps an async generator and captures usage metadata on exhaustion.
+
+    Unlike monkeypatching ``__anext__`` on an async generator (which is
+    unreliable), this class IS the async iterator, so ``__anext__`` is a
+    proper method. Providers call ``set_usage()`` as usage info arrives
+    during streaming, and when the inner iterator is exhausted the usage
+    is copied onto the ``StreamResult``.
+    """
+
+    def __init__(self, aiter: typing.AsyncIterator[str], result: StreamResult):
+        self._aiter = aiter
+        self._result = result
+        self._usage: dict[str, typing.Any] | None = None
+
+    def set_usage(self, usage: dict[str, typing.Any]) -> None:
+        self._usage = usage
+
+    def __aiter__(self) -> UsageTrackingStream:
+        return self
+
+    async def __anext__(self) -> str:
+        try:
+            return await self._aiter.__anext__()
+        except StopAsyncIteration:
+            if self._usage:
+                self._result.usage = self._usage
+            raise
+
+
 @typing.runtime_checkable
 class StreamingProvider(Provider, typing.Protocol):
     """Extend ``Provider`` with token-by-token streaming support.
@@ -107,7 +161,13 @@ class StreamingProvider(Provider, typing.Protocol):
     (inherited from ``Provider``) and ``astream``.
     """
 
-    def astream(self, prompt: str, model_config: dict, timeout: int) -> StreamResult:
+    def astream(
+        self,
+        prompt: str,
+        model_config: dict,
+        timeout: int,
+        request: ProviderRequest | None = None,
+    ) -> StreamResult:
         """Stream a prompt response as an async iterator of text chunks.
 
         Args:
@@ -119,6 +179,9 @@ class StreamingProvider(Provider, typing.Protocol):
             timeout: Maximum number of seconds to wait for the stream
                 to begin producing chunks before raising a timeout
                 error.
+            request: Optional typed request containing messages,
+                system_message, and flags. When provided, providers
+                should use these instead of extracting from model_config.
 
         Returns:
             A ``StreamResult`` instance that can be async-iterated to
@@ -136,11 +199,17 @@ class StreamingProvider(Provider, typing.Protocol):
         ...
 
 
-def fallback_astream(provider: Provider, prompt: str, model_config: dict, timeout: int) -> StreamResult:
+def fallback_astream(
+    provider: Provider,
+    prompt: str,
+    model_config: dict,
+    timeout: int,
+    request: ProviderRequest | None = None,
+) -> StreamResult:
     """Create a StreamResult that falls back to query() for non-streaming providers."""
 
     async def _single_chunk() -> typing.AsyncIterator[str]:
-        text, usage = await provider.query(prompt, model_config, timeout)
+        text, usage = await provider.query(prompt, model_config, timeout, request=request)
         result.usage = usage
         yield text
 
@@ -195,7 +264,9 @@ __all__ = [
     "OpenRouterProvider",
     "PoeProvider",
     "Provider",
+    "ProviderRequest",
     "StreamResult",
     "StreamingProvider",
+    "UsageTrackingStream",
     "fallback_astream",
 ]

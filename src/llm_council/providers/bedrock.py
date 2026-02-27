@@ -18,7 +18,7 @@ from botocore.exceptions import ClientError
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 if TYPE_CHECKING:
-    from . import StreamResult
+    from . import ProviderRequest, StreamResult, UsageTrackingStream
 
 logger = logging.getLogger("llm-council")
 
@@ -79,7 +79,13 @@ class BedrockProvider:
             self._client = boto3.client("bedrock-runtime", region_name=self.region)
         return self._client
 
-    async def query(self, prompt: str, model_config: dict, timeout: int) -> tuple[str, dict | None]:
+    async def query(
+        self,
+        prompt: str,
+        model_config: dict,
+        timeout: int,
+        request: ProviderRequest | None = None,
+    ) -> tuple[str, dict | None]:
         """Query Claude via AWS Bedrock with timeout and retry logic.
 
         Returns:
@@ -91,9 +97,13 @@ class BedrockProvider:
         model_id = model_config["model_id"]
         budget_tokens = model_config.get("budget_tokens")
 
-        # Parse the prompt as messages (it's already formatted)
-        messages = model_config.get("_messages", [{"role": "user", "content": prompt}])
-        system_message = model_config.get("_system_message")
+        # Use typed request if provided, fall back to legacy model_config keys
+        if request is not None:
+            messages = request.messages
+            system_message = request.system_message
+        else:
+            messages = model_config.get("_messages", [{"role": "user", "content": prompt}])
+            system_message = model_config.get("_system_message")
 
         @retry(
             stop=stop_after_attempt(MAX_RETRIES),
@@ -109,7 +119,7 @@ class BedrockProvider:
 
             request_body = {
                 "anthropic_version": "bedrock-2023-05-31",
-                "max_tokens": DEFAULT_MAX_TOKENS if budget_tokens else 8192,
+                "max_tokens": DEFAULT_MAX_TOKENS,
                 "messages": bedrock_messages,
             }
 
@@ -157,18 +167,30 @@ class BedrockProvider:
             logger.warning(f"Bedrock timeout for model {model_config.get('name', 'unknown')}")
             raise
 
-    def astream(self, prompt: str, model_config: dict, timeout: int) -> StreamResult:
+    def astream(
+        self,
+        prompt: str,
+        model_config: dict,
+        timeout: int,
+        request: ProviderRequest | None = None,
+    ) -> StreamResult:
         """Stream Claude via AWS Bedrock using invoke_model_with_response_stream.
 
         Returns:
             StreamResult wrapping an async generator of text chunks.
         """
-        from . import DEFAULT_MAX_TOKENS, MAX_RETRIES, StreamResult
+        from . import DEFAULT_MAX_TOKENS, MAX_RETRIES, StreamResult, UsageTrackingStream
 
         model_id = model_config["model_id"]
         budget_tokens = model_config.get("budget_tokens")
-        messages = model_config.get("_messages", [{"role": "user", "content": prompt}])
-        system_message = model_config.get("_system_message")
+
+        # Use typed request if provided, fall back to legacy model_config keys
+        if request is not None:
+            messages = request.messages
+            system_message = request.system_message
+        else:
+            messages = model_config.get("_messages", [{"role": "user", "content": prompt}])
+            system_message = model_config.get("_system_message")
 
         @retry(
             stop=stop_after_attempt(MAX_RETRIES),
@@ -182,7 +204,7 @@ class BedrockProvider:
 
             request_body = {
                 "anthropic_version": "bedrock-2023-05-31",
-                "max_tokens": DEFAULT_MAX_TOKENS if budget_tokens else 8192,
+                "max_tokens": DEFAULT_MAX_TOKENS,
                 "messages": bedrock_messages,
             }
 
@@ -228,19 +250,13 @@ class BedrockProvider:
                     if "output_tokens" in delta_usage:
                         usage_info["output_tokens"] = delta_usage["output_tokens"]
 
+            # Set usage on the wrapper when the generator finishes normally
+            if usage_info:
+                wrapper.set_usage(usage_info)
+
         gen = _generate()
         result = StreamResult(gen)
-
-        original_anext = gen.__anext__
-
-        async def patched_anext():
-            try:
-                return await original_anext()
-            except StopAsyncIteration:
-                if usage_info:
-                    result.usage = usage_info
-                raise
-
-        result._aiter.__anext__ = patched_anext  # type: ignore[attr-defined]
+        wrapper = UsageTrackingStream(gen, result)
+        result._aiter = wrapper
 
         return result

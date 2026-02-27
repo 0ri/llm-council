@@ -18,7 +18,7 @@ import httpx
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 if TYPE_CHECKING:
-    from . import StreamResult
+    from . import ProviderRequest, StreamResult, UsageTrackingStream
 
 logger = logging.getLogger("llm-council")
 
@@ -69,11 +69,41 @@ class OpenRouterProvider:
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",
                 },
-                timeout=httpx.Timeout(360.0, connect=30.0),
+                timeout=httpx.Timeout(600.0, connect=30.0),
             )
         return self._client
 
-    async def query(self, prompt: str, model_config: dict, timeout: int) -> tuple[str, dict[str, Any] | None]:
+    @staticmethod
+    def _build_body(model_config: dict, api_messages: list[dict[str, str]]) -> dict[str, Any]:
+        """Build the request body from model config and messages."""
+        body: dict[str, Any] = {
+            "model": model_config["model_id"],
+            "messages": api_messages,
+            "max_tokens": model_config.get("max_tokens", 16384),
+        }
+        if model_config.get("temperature") is not None:
+            body["temperature"] = model_config["temperature"]
+
+        # Build reasoning config if either effort or max_tokens is set
+        reasoning_effort = model_config.get("reasoning_effort")
+        reasoning_max_tokens = model_config.get("reasoning_max_tokens")
+        if reasoning_effort or reasoning_max_tokens:
+            reasoning: dict[str, Any] = {}
+            if reasoning_max_tokens:
+                reasoning["max_tokens"] = reasoning_max_tokens
+            elif reasoning_effort:
+                reasoning["effort"] = reasoning_effort
+            body["reasoning"] = reasoning
+
+        return body
+
+    async def query(
+        self,
+        prompt: str,
+        model_config: dict,
+        timeout: int,
+        request: ProviderRequest | None = None,
+    ) -> tuple[str, dict[str, Any] | None]:
         """Query a model via OpenRouter.
 
         Returns:
@@ -82,11 +112,13 @@ class OpenRouterProvider:
         """
         from . import MAX_RETRIES
 
-        model_id = model_config["model_id"]
-        messages = model_config.get("_messages", [{"role": "user", "content": prompt}])
-        system_message = model_config.get("_system_message")
-        temperature = model_config.get("temperature")
-        max_tokens = model_config.get("max_tokens", 8192)
+        # Use typed request if provided, fall back to legacy model_config keys
+        if request is not None:
+            messages = request.messages
+            system_message = request.system_message
+        else:
+            messages = model_config.get("_messages", [{"role": "user", "content": prompt}])
+            system_message = model_config.get("_system_message")
 
         @retry(
             stop=stop_after_attempt(MAX_RETRIES),
@@ -104,13 +136,7 @@ class OpenRouterProvider:
             for msg in messages:
                 api_messages.append({"role": msg["role"], "content": msg["content"]})
 
-            body: dict[str, Any] = {
-                "model": model_id,
-                "messages": api_messages,
-                "max_tokens": max_tokens,
-            }
-            if temperature is not None:
-                body["temperature"] = temperature
+            body = self._build_body(model_config, api_messages)
 
             resp = await client.post("/chat/completions", json=body, timeout=timeout)
 
@@ -139,19 +165,27 @@ class OpenRouterProvider:
 
         return await _query_inner()
 
-    def astream(self, prompt: str, model_config: dict, timeout: int) -> StreamResult:
+    def astream(
+        self,
+        prompt: str,
+        model_config: dict,
+        timeout: int,
+        request: ProviderRequest | None = None,
+    ) -> StreamResult:
         """Stream a model response via OpenRouter using SSE.
 
         Returns:
             StreamResult wrapping an async generator of text chunks.
         """
-        from . import MAX_RETRIES, StreamResult
+        from . import MAX_RETRIES, StreamResult, UsageTrackingStream
 
-        model_id = model_config["model_id"]
-        messages = model_config.get("_messages", [{"role": "user", "content": prompt}])
-        system_message = model_config.get("_system_message")
-        temperature = model_config.get("temperature")
-        max_tokens = model_config.get("max_tokens", 8192)
+        # Use typed request if provided, fall back to legacy model_config keys
+        if request is not None:
+            messages = request.messages
+            system_message = request.system_message
+        else:
+            messages = model_config.get("_messages", [{"role": "user", "content": prompt}])
+            system_message = model_config.get("_system_message")
 
         usage_info: dict[str, int] = {}
 
@@ -171,14 +205,8 @@ class OpenRouterProvider:
                 for msg in messages:
                     api_messages.append({"role": msg["role"], "content": msg["content"]})
 
-                body: dict[str, Any] = {
-                    "model": model_id,
-                    "messages": api_messages,
-                    "max_tokens": max_tokens,
-                    "stream": True,
-                }
-                if temperature is not None:
-                    body["temperature"] = temperature
+                body = self._build_body(model_config, api_messages)
+                body["stream"] = True
 
                 return await client.send(
                     client.build_request("POST", "/chat/completions", json=body),
@@ -222,20 +250,14 @@ class OpenRouterProvider:
             finally:
                 await resp.aclose()
 
+            # Set usage on the wrapper when the generator finishes normally
+            if usage_info:
+                wrapper.set_usage(usage_info)
+
         gen = _generate()
         result = StreamResult(gen)
-
-        original_anext = gen.__anext__
-
-        async def patched_anext():
-            try:
-                return await original_anext()
-            except StopAsyncIteration:
-                if usage_info:
-                    result.usage = usage_info
-                raise
-
-        result._aiter.__anext__ = patched_anext  # type: ignore[attr-defined]
+        wrapper = UsageTrackingStream(gen, result)
+        result._aiter = wrapper
 
         return result
 

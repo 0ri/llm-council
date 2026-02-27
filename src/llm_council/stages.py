@@ -12,6 +12,7 @@ import asyncio
 import logging
 import random
 import secrets
+import sqlite3
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -28,7 +29,7 @@ from .prompts import (
     SYNTHESIS_PROMPT_TEMPLATE,
     SYNTHESIS_SYSTEM_MESSAGE_TEMPLATE,
 )
-from .providers import MODEL_TIMEOUT, SOFT_TIMEOUT, StreamingProvider, fallback_astream
+from .providers import MODEL_TIMEOUT, SOFT_TIMEOUT, ProviderRequest, StreamingProvider, fallback_astream
 from .security import build_manipulation_resistance_msg, format_anonymized_responses, sanitize_model_output
 
 logger = logging.getLogger("llm-council")
@@ -39,6 +40,8 @@ async def query_model(
     messages: list[dict[str, str]],
     ctx: CouncilContext,
     system_message: str | None = None,
+    *,
+    suppress_provider_flags: bool = False,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     """Query a model through its provider, with timeout.
 
@@ -50,6 +53,8 @@ async def query_model(
         messages: List of message dicts
         ctx: CouncilContext providing providers, circuit breakers, semaphore
         system_message: Optional system message for injection hardening
+        suppress_provider_flags: If True, suppress provider-specific flags
+            (web_search, reasoning_effort) for ranking/synthesis queries.
 
     Returns:
         Tuple of (response dict with 'content' key or None, token usage dict or None)
@@ -89,17 +94,19 @@ async def query_model(
             logger.warning(f"Budget exceeded, skipping {model_name}")
             return None, None
 
-    # Add messages and system_message to config for provider access
-    config_with_context = model_config.copy()
-    config_with_context["_messages"] = messages
-    config_with_context["_system_message"] = system_message
+    # Build typed request for the provider
+    request = ProviderRequest(
+        messages=messages,
+        system_message=system_message,
+        suppress_provider_flags=suppress_provider_flags,
+    )
 
     try:
         provider = ctx.get_provider(provider_name)
         sem = ctx.get_semaphore()
         async with sem:
             result = await asyncio.wait_for(
-                provider.query("", config_with_context, MODEL_TIMEOUT),
+                provider.query("", model_config, MODEL_TIMEOUT, request=request),
                 timeout=MODEL_TIMEOUT,
             )
         cb.record_success()
@@ -134,6 +141,8 @@ async def stream_model(
     ctx: CouncilContext,
     on_chunk: Callable[[str], Awaitable[None]] | None = None,
     system_message: str | None = None,
+    *,
+    suppress_provider_flags: bool = False,
 ) -> tuple[str, dict | None]:
     """Stream a model response, falling back to query_model on error.
 
@@ -143,6 +152,7 @@ async def stream_model(
         ctx: CouncilContext providing providers, circuit breakers, semaphore.
         on_chunk: Optional async callback invoked for each text chunk.
         system_message: Optional system message.
+        suppress_provider_flags: If True, suppress provider-specific flags.
 
     Returns:
         Tuple of (accumulated text, token usage dict or None).
@@ -184,17 +194,20 @@ async def stream_model(
             logger.warning(f"Budget exceeded, skipping {model_name}")
             return "", None
 
-    config_with_context = model_config.copy()
-    config_with_context["_messages"] = messages
-    config_with_context["_system_message"] = system_message
+    # Build typed request for the provider
+    request = ProviderRequest(
+        messages=messages,
+        system_message=system_message,
+        suppress_provider_flags=suppress_provider_flags,
+    )
 
     try:
         provider = ctx.get_provider(provider_name)
 
         if isinstance(provider, StreamingProvider):
-            stream_result = provider.astream("", config_with_context, MODEL_TIMEOUT)
+            stream_result = provider.astream("", model_config, MODEL_TIMEOUT, request=request)
         else:
-            stream_result = fallback_astream(provider, "", config_with_context, MODEL_TIMEOUT)
+            stream_result = fallback_astream(provider, "", model_config, MODEL_TIMEOUT, request=request)
 
         accumulated = ""
         async for chunk in stream_result:
@@ -375,7 +388,11 @@ async def stage1_collect_responses(
         model_name = model_config.get("name", "unknown")
         model_id = model_config.get("model_id", model_config.get("bot_name", ""))
         if ctx.cache is not None:
-            hit = ctx.cache.get(user_query, model_name, model_id, model_config)
+            try:
+                hit = await ctx.cache.aget(user_query, model_name, model_id, model_config)
+            except (sqlite3.OperationalError, Exception):
+                logger.warning(f"Cache read failed for {model_name}, querying model instead")
+                hit = None
             if hit is not None:
                 response_text, token_usage = hit
                 cached_responses[model_name] = {"content": response_text}
@@ -405,14 +422,17 @@ async def stage1_collect_responses(
             model_id = model_config.get("model_id", model_config.get("bot_name", ""))
             response = responses.get(model_name)
             if response is not None:
-                ctx.cache.put(
-                    user_query,
-                    model_name,
-                    model_id,
-                    response.get("content", ""),
-                    token_usages.get(model_name),
-                    model_config,
-                )
+                try:
+                    await ctx.cache.aput(
+                        user_query,
+                        model_name,
+                        model_id,
+                        response.get("content", ""),
+                        token_usages.get(model_name),
+                        model_config,
+                    )
+                except (sqlite3.OperationalError, Exception):
+                    logger.warning(f"Cache write failed for {model_name}, continuing without cache")
 
     # Merge cached + fresh responses
     all_responses = {**cached_responses, **responses}
@@ -482,9 +502,13 @@ async def _get_ranking(
     num_responses: int,
     ctx: CouncilContext,
     system_message: str,
+    *,
+    suppress_provider_flags: bool = False,
 ) -> tuple[Stage2Result | None, dict[str, Any] | None]:
     """Execute a single ranking query and parse the result."""
-    response, token_usage = await query_model(model_config, messages, ctx, system_message)
+    response, token_usage = await query_model(
+        model_config, messages, ctx, system_message, suppress_provider_flags=suppress_provider_flags
+    )
     if response is not None:
         full_text = response.get("content", "")
         parsed_ranking, is_valid = parse_ranking_from_text(full_text, num_responses=num_responses)
@@ -584,17 +608,24 @@ async def stage2_collect_rankings(
 
         messages = [{"role": "user", "content": ranking_prompt}]
 
-        # Store context for potential retries (with flags suppressed)
+        # Store context for potential retries
         ranker_task_context[ranker_name] = {
-            "model_config": {**ranker_model, "_skip_flags": True},
+            "model_config": ranker_model,
             "messages": messages,
             "num_responses": len(filtered_responses),
         }
 
         # Suppress provider flags (web_search, reasoning_effort) for ranking queries
-        ranker_config = {**ranker_model, "_skip_flags": True}
         ranking_tasks.append(
-            _get_ranking(ranker_config, messages, ranker_name, len(filtered_responses), ctx, system_message)
+            _get_ranking(
+                ranker_model,
+                messages,
+                ranker_name,
+                len(filtered_responses),
+                ctx,
+                system_message,
+                suppress_provider_flags=True,
+            )
         )
 
     # Execute all ranking tasks in parallel
@@ -652,6 +683,7 @@ async def stage2_collect_rankings(
                     task_ctx["num_responses"],
                     ctx,
                     system_message,
+                    suppress_provider_flags=True,
                 )
             )
             retry_indices.append(idx)
@@ -783,12 +815,16 @@ async def stage3_synthesize_final(
     messages = [{"role": "user", "content": chairman_prompt}]
 
     # Query the chairman model with system message (suppress provider flags for synthesis)
-    chairman_query_config = {**chairman_config, "_skip_flags": True}
     start = time.time()
 
     if stream:
         text, token_usage = await stream_model(
-            chairman_query_config, messages, ctx, on_chunk=on_chunk, system_message=system_message
+            chairman_config,
+            messages,
+            ctx,
+            on_chunk=on_chunk,
+            system_message=system_message,
+            suppress_provider_flags=True,
         )
         elapsed = time.time() - start
 
@@ -799,7 +835,9 @@ async def stage3_synthesize_final(
 
         return Stage3Result(model=chairman_name, response=text), token_usage
     else:
-        response, token_usage = await query_model(chairman_query_config, messages, ctx, system_message)
+        response, token_usage = await query_model(
+            chairman_config, messages, ctx, system_message, suppress_provider_flags=True
+        )
         elapsed = time.time() - start
 
         if progress:

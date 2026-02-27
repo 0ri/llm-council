@@ -35,10 +35,10 @@ class _FailingStreamingProvider:
         self._chunks = chunks_before_error
         self._error = error
 
-    async def query(self, prompt: str, model_config: dict, timeout: int) -> tuple[str, dict | None]:
+    async def query(self, prompt: str, model_config: dict, timeout: int, **kwargs) -> tuple[str, dict | None]:
         return "fallback response", {"input_tokens": 10, "output_tokens": 20}
 
-    def astream(self, prompt: str, model_config: dict, timeout: int) -> StreamResult:
+    def astream(self, prompt: str, model_config: dict, timeout: int, **kwargs) -> StreamResult:
         error = self._error
         chunks = self._chunks
 
@@ -57,10 +57,10 @@ class _GoodStreamingProvider:
         self._chunks = chunks
         self._usage = usage
 
-    async def query(self, prompt: str, model_config: dict, timeout: int) -> tuple[str, dict | None]:
+    async def query(self, prompt: str, model_config: dict, timeout: int, **kwargs) -> tuple[str, dict | None]:
         return "".join(self._chunks), self._usage
 
-    def astream(self, prompt: str, model_config: dict, timeout: int) -> StreamResult:
+    def astream(self, prompt: str, model_config: dict, timeout: int, **kwargs) -> StreamResult:
         chunks = self._chunks
         usage = self._usage
 

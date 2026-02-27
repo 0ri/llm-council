@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 if TYPE_CHECKING:
-    from . import StreamResult
+    from . import ProviderRequest, StreamResult
 
 logger = logging.getLogger("llm-council")
 
@@ -62,7 +62,13 @@ class PoeProvider:
     def __init__(self, api_key: str):
         self.api_key = api_key
 
-    async def query(self, prompt: str, model_config: dict, timeout: int) -> tuple[str, None]:
+    async def query(
+        self,
+        prompt: str,
+        model_config: dict,
+        timeout: int,
+        request: ProviderRequest | None = None,
+    ) -> tuple[str, None]:
         """Query a Poe.com bot with retry logic and timeout.
 
         Returns:
@@ -72,13 +78,19 @@ class PoeProvider:
 
         # Extract model-specific parameters
         bot_name = model_config["bot_name"]
-        skip_flags = model_config.get("_skip_flags", False)
-        web_search = False if skip_flags else model_config.get("web_search", False)
-        reasoning_effort = None if skip_flags else model_config.get("reasoning_effort")
 
-        # Parse the messages and system message from config
-        messages = model_config.get("_messages", [{"role": "user", "content": prompt}])
-        system_message = model_config.get("_system_message")
+        # Use typed request if provided, fall back to legacy model_config keys
+        if request is not None:
+            suppress_flags = request.suppress_provider_flags
+            messages = request.messages
+            system_message = request.system_message
+        else:
+            suppress_flags = model_config.get("_skip_flags", False)
+            messages = model_config.get("_messages", [{"role": "user", "content": prompt}])
+            system_message = model_config.get("_system_message")
+
+        web_search = False if suppress_flags else model_config.get("web_search", False)
+        reasoning_effort = None if suppress_flags else model_config.get("reasoning_effort")
 
         import fastapi_poe as fp
         from fastapi_poe import ProtocolMessage
@@ -143,7 +155,13 @@ class PoeProvider:
         # Poe doesn't provide token counts, return None for usage
         return result, None
 
-    def astream(self, prompt: str, model_config: dict, timeout: int) -> StreamResult:
+    def astream(
+        self,
+        prompt: str,
+        model_config: dict,
+        timeout: int,
+        request: ProviderRequest | None = None,
+    ) -> StreamResult:
         """Stream a Poe.com bot response, yielding each partial text chunk.
 
         Returns:
@@ -153,12 +171,19 @@ class PoeProvider:
         from . import StreamResult
 
         bot_name = model_config["bot_name"]
-        skip_flags = model_config.get("_skip_flags", False)
-        web_search = False if skip_flags else model_config.get("web_search", False)
-        reasoning_effort = None if skip_flags else model_config.get("reasoning_effort")
 
-        messages = model_config.get("_messages", [{"role": "user", "content": prompt}])
-        system_message = model_config.get("_system_message")
+        # Use typed request if provided, fall back to legacy model_config keys
+        if request is not None:
+            suppress_flags = request.suppress_provider_flags
+            messages = request.messages
+            system_message = request.system_message
+        else:
+            suppress_flags = model_config.get("_skip_flags", False)
+            messages = model_config.get("_messages", [{"role": "user", "content": prompt}])
+            system_message = model_config.get("_system_message")
+
+        web_search = False if suppress_flags else model_config.get("web_search", False)
+        reasoning_effort = None if suppress_flags else model_config.get("reasoning_effort")
 
         import fastapi_poe as fp
         from fastapi_poe import ProtocolMessage
