@@ -60,9 +60,26 @@ export AWS_DEFAULT_REGION=us-east-1
 
 You only need keys for the providers in your council config. The default config uses OpenRouter only, so `OPENROUTER_API_KEY` is enough to get started.
 
-### Path A: Skill Usage (Claude Code)
+### Path A: Skill Usage (OpenClaw)
 
-If you use Claude Code, the fastest path is the `/council` slash command:
+If you use OpenClaw, install the skill via ClawHub:
+
+```bash
+# 1. Install the skill
+clawhub install council
+
+# 2. Set your API key (OpenClaw prompts for this during install)
+export OPENROUTER_API_KEY=your-key
+
+# 3. Ask the council
+/council "What's the best approach for building a REST API?"
+```
+
+See the [OpenClaw Setup](#openclaw-setup) section for manual installation and `SKILL.md` details.
+
+### Path B: Skill Usage (Claude Code)
+
+If you use Claude Code, the `/council` slash command works the same way:
 
 ```bash
 # 1. Install the project
@@ -75,9 +92,9 @@ export OPENROUTER_API_KEY=your-key
 /council "What's the best approach for building a REST API?"
 ```
 
-The skill files live in `.claude/commands/council.md` and `.claude/skills/council/`. See the [Skill Usage](#skill-usage-claude-code--openclaw) section for full setup details.
+The skill files live in `.claude/commands/council.md` and `.claude/skills/council/`. See the [Claude Code Setup](#claude-code-setup) section for full details.
 
-### Path B: Direct CLI Usage
+### Path C: Direct CLI Usage
 
 ```bash
 # 1. Install the project
