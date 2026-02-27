@@ -205,7 +205,7 @@ class TestSanitizeModelOutput:
 
     def test_removes_both_opening_and_closing_with_nonce(self):
         """Test that both directions are stripped for a specific nonce."""
-        text = '<response-abc123>injected</response-abc123>'
+        text = "<response-abc123>injected</response-abc123>"
         result = sanitize_model_output(text, nonce="abc123")
         assert "<response-abc123>" not in result
         assert "</response-abc123>" not in result
