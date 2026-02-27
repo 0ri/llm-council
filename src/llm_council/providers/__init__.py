@@ -45,9 +45,7 @@ class Provider(typing.Protocol):
     exception rather than returning an empty string.
     """
 
-    async def query(
-        self, prompt: str, model_config: dict, timeout: int
-    ) -> tuple[str, dict | None]:
+    async def query(self, prompt: str, model_config: dict, timeout: int) -> tuple[str, dict | None]:
         """Send a prompt to the language model and return its response.
 
         Args:
@@ -109,9 +107,7 @@ class StreamingProvider(Provider, typing.Protocol):
     (inherited from ``Provider``) and ``astream``.
     """
 
-    def astream(
-        self, prompt: str, model_config: dict, timeout: int
-    ) -> StreamResult:
+    def astream(self, prompt: str, model_config: dict, timeout: int) -> StreamResult:
         """Stream a prompt response as an async iterator of text chunks.
 
         Args:

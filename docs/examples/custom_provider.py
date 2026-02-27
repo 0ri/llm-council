@@ -23,9 +23,7 @@ from llm_council.providers import StreamResult  # wrapper for streaming chunks
 class EchoProvider:
     """Minimal provider that echoes the prompt back as its response."""
 
-    async def query(
-        self, prompt: str, model_config: dict, timeout: int
-    ) -> tuple[str, dict | None]:
+    async def query(self, prompt: str, model_config: dict, timeout: int) -> tuple[str, dict | None]:
         """Return the prompt text as the model response.
 
         Args:
@@ -56,9 +54,7 @@ class EchoProvider:
 class EchoStreamingProvider(EchoProvider):
     """Streaming variant that yields the response word-by-word."""
 
-    def astream(
-        self, prompt: str, model_config: dict, timeout: int
-    ) -> StreamResult:
+    def astream(self, prompt: str, model_config: dict, timeout: int) -> StreamResult:
         """Stream the echo response one word at a time.
 
         Returns a ``StreamResult`` whose async iterator yields individual
