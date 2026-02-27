@@ -11,7 +11,7 @@ from llm_council.council import run_council
 from llm_council.models import BudgetConfig, CouncilConfig
 
 try:
-    __version__ = version("llm-council")
+    __version__ = version("llm-council-skill")
 except PackageNotFoundError:
     __version__ = "0.0.0"
 

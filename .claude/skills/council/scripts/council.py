@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["llm-council"]
+# dependencies = ["llm-council-skill"]
 # ///
 """
 LLM Council CLI - Multi-model deliberation with anonymized peer review.

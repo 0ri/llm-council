@@ -1,5 +1,5 @@
 [project]
-name = "llm-council"
+name = "llm-council-skill"
 version = "0.2.0"
 description = "Multi-model LLM deliberation with anonymized peer review"
 readme = "README.md"
