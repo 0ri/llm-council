@@ -35,42 +35,28 @@ logger = logging.getLogger("llm-council")
 def validate_config(config: dict) -> list[str]:
     """Validate a council configuration dictionary.
 
-    Check that *config* contains valid ``council_models`` and ``chairman``
-    entries, that provider names are recognised, that required
-    provider-specific fields are present, and that budget values (when
-    supplied) are within acceptable ranges.  Environment variables
-    (``POE_API_KEY``, ``OPENROUTER_API_KEY``) are also checked when the
-    corresponding providers appear in the config.
+    Delegates structural validation (model fields, budget constraints,
+    provider-specific requirements) to ``CouncilConfig`` via Pydantic,
+    then performs environment-variable checks that Pydantic cannot handle.
 
     Args:
         config: Raw configuration dictionary, typically loaded from a
-            ``council-config.json`` file.  Expected top-level keys include
-            ``council_models`` (list of model dicts) and ``chairman``
-            (a single model dict).  An optional ``budget`` dict may
-            contain ``max_tokens``, ``max_cost_usd``,
-            ``input_cost_per_1k``, and ``output_cost_per_1k``.
+            ``council-config.json`` file.
 
     Returns:
         A list of human-readable validation error strings.  An empty list
         means the configuration is valid.
-
-    Raises:
-        TypeError: If *config* is not a dictionary (raised by Pydantic
-            when unpacking fails).
     """
     errors: list[str] = []
 
-    # Try to validate basic structure with Pydantic
+    # --- Pydantic structural validation ---
     try:
-        # This validates the council structure using Pydantic models
         CouncilConfig(**config)
     except ValidationError as e:
-        # Convert Pydantic validation errors to our format
         for error in e.errors():
             loc = ".".join(str(x) for x in error["loc"])
             msg = error["msg"]
 
-            # Custom formatting for common errors
             if error["type"] == "missing":
                 if loc == "council_models":
                     errors.append("Config missing 'council_models' list")
@@ -80,100 +66,61 @@ def validate_config(config: dict) -> list[str]:
                     errors.append(f"Missing required field: {loc}")
             elif error["type"] in ["list_min_length", "too_short"] and "council_models" in loc:
                 errors.append("'council_models' must be a non-empty list")
-            elif error["type"] == "literal_error":
-                if "provider" in loc:
-                    # Extract model name from location
-                    if "council_models" in loc:
-                        idx = loc.split(".")[1] if "." in loc else "0"
-                        idx_int = int(idx) if idx.isdigit() else 0
-                        model_name = config.get("council_models", [{}])[idx_int].get("name", f"model[{idx}]")
-                    else:
-                        model_name = config.get("chairman", {}).get("name", "chairman")
-                    errors.append(f"{model_name}: unknown provider (must be one of: bedrock, poe, openrouter)")
+            elif error["type"] == "literal_error" and "provider" in loc:
+                if "council_models" in loc:
+                    idx = loc.split(".")[1] if "." in loc else "0"
+                    idx_int = int(idx) if idx.isdigit() else 0
+                    model_name = config.get("council_models", [{}])[idx_int].get("name", f"model[{idx}]")
+                else:
+                    model_name = config.get("chairman", {}).get("name", "chairman")
+                errors.append(f"{model_name}: unknown provider (must be one of: bedrock, poe, openrouter)")
+            elif "budget_tokens" in loc and error["type"] in ("greater_than_equal", "less_than_equal"):
+                if "council_models" in loc:
+                    idx = int(loc.split(".")[1]) if "." in loc and loc.split(".")[1].isdigit() else 0
+                    model_name = config.get("council_models", [{}])[idx].get("name", f"model[{idx}]")
+                else:
+                    model_name = config.get("chairman", {}).get("name", "chairman")
+                errors.append(f"{model_name}: 'budget_tokens' must be integer between 1024 and 128000")
+            elif error["type"] == "union_tag_invalid":
+                if "council_models" in loc:
+                    idx = int(loc.split(".")[1]) if "." in loc and loc.split(".")[1].isdigit() else 0
+                    model_name = config.get("council_models", [{}])[idx].get("name", f"model[{idx}]")
+                else:
+                    model_name = config.get("chairman", {}).get("name", "chairman")
+                input_str = str(error.get("input", {}))
+                if "model_id" in input_str:
+                    errors.append(f"{model_name}: Bedrock provider requires 'model_id'")
+                elif "bot_name" in input_str:
+                    errors.append(f"{model_name}: Poe provider requires 'bot_name'")
                 else:
                     errors.append(f"{loc}: {msg}")
-            elif "model_id" in str(error.get("input", {})) and error["type"] == "union_tag_invalid":
-                # Handle missing model_id for bedrock
-                if "council_models" in loc:
-                    idx = int(loc.split(".")[1]) if "." in loc and loc.split(".")[1].isdigit() else 0
-                    model_name = config.get("council_models", [{}])[idx].get("name", f"model[{idx}]")
-                else:
-                    model_name = config.get("chairman", {}).get("name", "chairman")
-                errors.append(f"{model_name}: Bedrock provider requires 'model_id'")
-            elif "bot_name" in str(error.get("input", {})) and error["type"] == "union_tag_invalid":
-                # Handle missing bot_name for poe
-                if "council_models" in loc:
-                    idx = int(loc.split(".")[1]) if "." in loc and loc.split(".")[1].isdigit() else 0
-                    model_name = config.get("council_models", [{}])[idx].get("name", f"model[{idx}]")
-                else:
-                    model_name = config.get("chairman", {}).get("name", "chairman")
-                errors.append(f"{model_name}: Poe provider requires 'bot_name'")
-            elif error["type"] == "greater_than_equal" and "budget_tokens" in loc:
-                if "council_models" in loc:
-                    idx = int(loc.split(".")[1]) if "." in loc and loc.split(".")[1].isdigit() else 0
-                    model_name = config.get("council_models", [{}])[idx].get("name", f"model[{idx}]")
-                else:
-                    model_name = config.get("chairman", {}).get("name", "chairman")
-                errors.append(f"{model_name}: 'budget_tokens' must be integer between 1024 and 128000")
-            elif error["type"] == "less_than_equal" and "budget_tokens" in loc:
-                if "council_models" in loc:
-                    idx = int(loc.split(".")[1]) if "." in loc and loc.split(".")[1].isdigit() else 0
-                    model_name = config.get("council_models", [{}])[idx].get("name", f"model[{idx}]")
-                else:
-                    model_name = config.get("chairman", {}).get("name", "chairman")
-                errors.append(f"{model_name}: 'budget_tokens' must be integer between 1024 and 128000")
             else:
-                # Generic error formatting
                 errors.append(f"{loc}: {msg}")
 
-    # Check for missing name fields (Pydantic doesn't validate this well for union types)
+    # --- Check for missing name fields (union dispatch can mask this) ---
     all_models = list(config.get("council_models", []))
     if "chairman" in config:
         all_models.append(config["chairman"])
-
     for i, model in enumerate(all_models):
         if "name" not in model:
             errors.append(f"Model at index {i} missing 'name'")
 
-    # Check POE_API_KEY if any model uses poe (env check that Pydantic can't do)
+    # --- Environment variable checks (Pydantic can't do these) ---
     poe_models = [m for m in config.get("council_models", []) if m.get("provider") == "poe"]
     if config.get("chairman", {}).get("provider") == "poe":
         poe_models.append(config["chairman"])
     if poe_models and not os.environ.get("POE_API_KEY"):
         errors.append("POE_API_KEY environment variable required for Poe provider models")
 
-    # Check OPENROUTER_API_KEY if any model uses openrouter
     or_models = [m for m in config.get("council_models", []) if m.get("provider") == "openrouter"]
     if config.get("chairman", {}).get("provider") == "openrouter":
         or_models.append(config["chairman"])
     if or_models and not os.environ.get("OPENROUTER_API_KEY"):
         errors.append("OPENROUTER_API_KEY environment variable required for OpenRouter provider models")
 
-    # Validate budget config if present (not in Pydantic model)
-    if "budget" in config:
-        budget = config["budget"]
-        if "max_tokens" in budget:
-            if not isinstance(budget["max_tokens"], int) or budget["max_tokens"] <= 0:
-                errors.append("budget.max_tokens must be a positive integer")
-        if "max_cost_usd" in budget:
-            if not isinstance(budget["max_cost_usd"], (int, float)) or budget["max_cost_usd"] <= 0:
-                errors.append("budget.max_cost_usd must be a positive number")
-        if "input_cost_per_1k" in budget:
-            if not isinstance(budget["input_cost_per_1k"], (int, float)) or budget["input_cost_per_1k"] < 0:
-                errors.append("budget.input_cost_per_1k must be a non-negative number")
-        if "output_cost_per_1k" in budget:
-            if not isinstance(budget["output_cost_per_1k"], (int, float)) or budget["output_cost_per_1k"] < 0:
-                errors.append("budget.output_cost_per_1k must be a non-negative number")
-
-    # Remove duplicates while preserving order
-    seen = set()
-    unique_errors = []
-    for error in errors:
-        if error not in seen:
-            seen.add(error)
-            unique_errors.append(error)
-
-    return unique_errors
+    # Deduplicate preserving order
+    seen: set[str] = set()
+    return [e for e in errors if not (e in seen or seen.add(e))]
 
 
 async def run_council(

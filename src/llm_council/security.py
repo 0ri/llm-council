@@ -111,8 +111,9 @@ def sanitize_user_input(text: str, max_length: int = 500000) -> str:
 def sanitize_model_output(text: str, nonce: str | None = None) -> str:
     """Strip potential fence-breaking attempts from model output.
 
-    Removes any closing XML tags that could match our nonce pattern,
-    preventing models from guessing and breaking out of their fence.
+    Removes both opening and closing XML tags that could match our nonce
+    pattern, preventing models from injecting fake fences or breaking
+    out of their fenced block.
 
     Args:
         text: Model output to sanitize
@@ -121,16 +122,17 @@ def sanitize_model_output(text: str, nonce: str | None = None) -> str:
     Returns:
         Sanitized text with fence-breaking attempts removed
     """
-    # If a specific nonce is provided, strip that exact pattern
-    if nonce:
-        # Remove any attempts to close the response tag with this nonce
-        pattern = rf"</response-{re.escape(nonce)}>"
-        text = re.sub(pattern, "[FENCE_BREAK_ATTEMPT_REMOVED]", text, flags=re.IGNORECASE)
+    replacement = "[FENCE_BREAK_ATTEMPT_REMOVED]"
 
-    # Also strip generic attempts to close response tags
-    # This catches attempts like </response-*> or </response-[hex]>
-    generic_pattern = r"</response-[a-fA-F0-9]+>"
-    text = re.sub(generic_pattern, "[FENCE_BREAK_ATTEMPT_REMOVED]", text)
+    if nonce:
+        escaped = re.escape(nonce)
+        # Strip both opening and closing tags for the specific nonce
+        text = re.sub(rf"<response-{escaped}(?:\s[^>]*)?>", replacement, text, flags=re.IGNORECASE)
+        text = re.sub(rf"</response-{escaped}>", replacement, text, flags=re.IGNORECASE)
+
+    # Strip generic opening and closing response tags with hex nonce patterns
+    text = re.sub(r"<response-[a-fA-F0-9]+(?:\s[^>]*)?>", replacement, text)
+    text = re.sub(r"</response-[a-fA-F0-9]+>", replacement, text)
 
     return text
 
