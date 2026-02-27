@@ -1,4 +1,9 @@
-"""Prompt templates for LLM Council stages."""
+"""Prompt templates for Stage 2 ranking and Stage 3 chairman synthesis.
+
+Contains system-message and user-prompt templates for peer ranking
+(``RANKING_*_TEMPLATE``) and chairman synthesis (``SYNTHESIS_*_TEMPLATE``),
+with placeholders for nonce-fenced responses and injection-hardening.
+"""
 
 from __future__ import annotations
 

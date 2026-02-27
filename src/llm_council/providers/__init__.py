@@ -1,4 +1,11 @@
-"""Provider abstraction layer for LLM Council."""
+"""Provider abstraction layer for LLM Council.
+
+Defines the ``Provider`` and ``StreamingProvider`` protocols that all LLM
+backends must implement, along with shared infrastructure: ``CircuitBreaker``
+for failure detection, ``StreamResult`` for streaming responses, configurable
+timeout/retry defaults, and the ``fallback_astream`` helper. Concrete
+implementations live in the ``bedrock``, ``openrouter``, and ``poe`` sub-modules.
+"""
 
 from __future__ import annotations
 
@@ -25,9 +32,49 @@ MAX_RETRIES = DEFAULT_MAX_RETRIES
 
 
 class Provider(typing.Protocol):
-    """Protocol for LLM providers."""
+    """Define the interface that all LLM provider backends must implement.
 
-    async def query(self, prompt: str, model_config: dict, timeout: int) -> tuple[str, dict | None]: ...
+    Every concrete provider (Bedrock, OpenRouter, Poe) satisfies this
+    protocol by implementing the ``query`` method. The council pipeline
+    dispatches Stage 1 and Stage 2 calls through this interface, passing
+    a prompt string, provider-specific model configuration, and a timeout.
+
+    Implementations should return the model's text response along with
+    optional usage metadata (token counts, cost estimates). If the
+    provider cannot fulfil the request, it should raise an appropriate
+    exception rather than returning an empty string.
+    """
+
+    async def query(
+        self, prompt: str, model_config: dict, timeout: int
+    ) -> tuple[str, dict | None]:
+        """Send a prompt to the language model and return its response.
+
+        Args:
+            prompt: The full prompt text to send to the model, including
+                any system instructions and user content.
+            model_config: Provider-specific configuration dictionary.
+                Bedrock configs include ``model_id`` and ``budget_tokens``;
+                Poe configs include ``bot_name``, ``web_search``, and
+                ``reasoning_effort``; OpenRouter configs include
+                ``model_id``, ``temperature``, and ``max_tokens``.
+            timeout: Maximum number of seconds to wait for a response
+                before raising a timeout error.
+
+        Returns:
+            A tuple of (response_text, usage_metadata). ``response_text``
+            is the model's generated text. ``usage_metadata`` is an
+            optional dictionary containing token counts and cost
+            information (e.g. ``input_tokens``, ``output_tokens``), or
+            ``None`` if the provider does not report usage data.
+
+        Raises:
+            TimeoutError: If the provider does not respond within the
+                specified timeout.
+            RuntimeError: If the provider encounters an unrecoverable
+                error (e.g. invalid credentials, model not found).
+        """
+        ...
 
 
 class StreamResult:
@@ -49,9 +96,48 @@ class StreamResult:
 
 @typing.runtime_checkable
 class StreamingProvider(Provider, typing.Protocol):
-    """Protocol for providers that support streaming."""
+    """Extend ``Provider`` with token-by-token streaming support.
 
-    def astream(self, prompt: str, model_config: dict, timeout: int) -> StreamResult: ...
+    Providers that implement this protocol can deliver Stage 3 synthesis
+    output incrementally, allowing the CLI to display tokens as they
+    arrive rather than waiting for the full response. The
+    ``fallback_astream`` helper wraps any plain ``Provider`` as a
+    single-chunk stream, so callers can always use the streaming
+    interface regardless of provider capability.
+
+    A class satisfies this protocol by implementing both ``query``
+    (inherited from ``Provider``) and ``astream``.
+    """
+
+    def astream(
+        self, prompt: str, model_config: dict, timeout: int
+    ) -> StreamResult:
+        """Stream a prompt response as an async iterator of text chunks.
+
+        Args:
+            prompt: The full prompt text to send to the model, including
+                any system instructions and user content.
+            model_config: Provider-specific configuration dictionary.
+                See ``Provider.query`` for the expected keys per
+                provider type.
+            timeout: Maximum number of seconds to wait for the stream
+                to begin producing chunks before raising a timeout
+                error.
+
+        Returns:
+            A ``StreamResult`` instance that can be async-iterated to
+            receive text chunks. The ``StreamResult.accumulated``
+            attribute collects the full response, and
+            ``StreamResult.usage`` is populated with token/cost
+            metadata once the stream completes.
+
+        Raises:
+            TimeoutError: If the provider does not begin streaming
+                within the specified timeout.
+            RuntimeError: If the provider encounters an unrecoverable
+                error (e.g. invalid credentials, model not found).
+        """
+        ...
 
 
 def fallback_astream(provider: Provider, prompt: str, model_config: dict, timeout: int) -> StreamResult:

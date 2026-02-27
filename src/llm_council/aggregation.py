@@ -1,4 +1,9 @@
-"""Ranking aggregation logic for LLM Council."""
+"""Ranking aggregation for Stage 2 peer-review ballots.
+
+Provides ``calculate_aggregate_rankings`` to combine per-model ranking
+ballots into a leaderboard using average rank, Borda count scoring, and
+bootstrap confidence intervals. Called after Stage 2 to feed Stage 3.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,10 @@
-"""Token counting and cost estimation for LLM Council runs."""
+"""Token counting and cost estimation for council runs.
+
+Exports ``estimate_tokens`` (tiktoken or character heuristic),
+``ModelUsage`` for per-call tracking, and ``CouncilCostTracker`` which
+accumulates usage across all three pipeline stages and produces a
+human-readable summary with actual vs. estimated token breakdowns.
+"""
 
 from __future__ import annotations
 
@@ -138,14 +144,17 @@ class CouncilCostTracker:
 
     @property
     def total_input_tokens(self) -> int:
+        """Sum input tokens across all recorded usages."""
         return sum(u.input_tokens for u in self.usages)
 
     @property
     def total_output_tokens(self) -> int:
+        """Sum output tokens across all recorded usages."""
         return sum(u.output_tokens for u in self.usages)
 
     @property
     def total_tokens(self) -> int:
+        """Sum all input and output tokens across all recorded usages."""
         return self.total_input_tokens + self.total_output_tokens
 
     def summary(self) -> str:

@@ -1,4 +1,10 @@
-"""Output formatting for LLM Council results."""
+"""Output formatting for council results at each pipeline stage.
+
+Exports ``format_output`` (full 3-stage markdown with rankings table and
+chairman synthesis), ``format_stage1_output`` (responses only), and
+``format_stage2_output`` (responses + rankings, no synthesis). Called by
+``run_council`` to produce the final user-facing output.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +17,29 @@ def format_output(
     valid_ballots: int,
     total_ballots: int,
 ) -> str:
-    """Format the council results as markdown."""
+    """Format the full 3-stage council results as a markdown document.
+
+    Assembles a rankings table (average position, 95 % confidence
+    interval, Borda score), a ballot-validity indicator, and the
+    chairman's synthesis into a single markdown string ready for
+    display.
+
+    Args:
+        aggregate_rankings: Aggregate ranking entries sorted from best
+            to worst.  Each entry carries the model name, average rank,
+            confidence-interval bounds, and Borda score.
+        stage3_result: The chairman's Stage 3 synthesis containing the
+            model name and synthesized response text.
+        valid_ballots: Number of Stage 2 ballots that were successfully
+            parsed.
+        total_ballots: Total number of Stage 2 ballots attempted
+            (including unparseable ones).
+
+    Returns:
+        A markdown-formatted string containing the rankings table,
+        ballot validity note, and chairman synthesis, joined by
+        newlines.
+    """
     output: list[str] = []
     output.append("## LLM Council Response\n")
 

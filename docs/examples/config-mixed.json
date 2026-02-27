@@ -1,0 +1,37 @@
+{
+  "council_models": [
+    {
+      "name": "Claude Sonnet (Bedrock)",
+      "provider": "bedrock",
+      "model_id": "us.anthropic.claude-sonnet-4-20250514-v1:0",
+      "budget_tokens": 8192
+    },
+    {
+      "name": "Claude 3.5 Sonnet (Poe)",
+      "provider": "poe",
+      "bot_name": "Claude-3.5-Sonnet",
+      "web_search": true,
+      "reasoning_effort": "high"
+    },
+    {
+      "name": "Gemini Pro 1.5 (OpenRouter)",
+      "provider": "openrouter",
+      "model_id": "google/gemini-pro-1.5",
+      "temperature": 0.7,
+      "max_tokens": 4096
+    }
+  ],
+  "chairman": {
+    "name": "Claude Sonnet (Bedrock)",
+    "provider": "bedrock",
+    "model_id": "us.anthropic.claude-sonnet-4-20250514-v1:0",
+    "budget_tokens": 16384
+  },
+  "budget": {
+    "max_cost_usd": 2.50,
+    "input_cost_per_1k": 0.003,
+    "output_cost_per_1k": 0.015
+  },
+  "cache_ttl": 3600,
+  "soft_timeout": 120
+}

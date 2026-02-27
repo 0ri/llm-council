@@ -1,4 +1,9 @@
-"""Budget controls for LLM Council to prevent excessive token usage and cost."""
+"""Budget controls for limiting token usage and cost across a council run.
+
+Exports ``BudgetGuard`` (reserve/commit/release protocol for concurrent
+queries) and ``create_budget_guard`` factory. Raises ``BudgetExceededError``
+when configured token or cost limits are breached.
+"""
 
 from __future__ import annotations
 
@@ -17,9 +22,26 @@ class BudgetExceededError(Exception):
 
 @dataclass
 class BudgetGuard:
-    """Tracks and enforces token usage and cost limits.
+    """Track and enforce token-usage and cost limits for a council run.
 
-    Raises BudgetExceededError if limits are exceeded.
+    Uses a reserve/commit/release protocol designed for concurrent queries:
+    call ``reserve()`` before dispatching a model query to deduct the
+    estimated cost, ``commit()`` after success to adjust to actual usage,
+    or ``release()`` on failure to return the reservation.
+
+    Args:
+        max_tokens: Maximum combined input + output tokens allowed across
+            all queries. ``None`` means unlimited.
+        max_cost_usd: Maximum total cost in USD allowed across all
+            queries. ``None`` means unlimited.
+        input_cost_per_1k: Cost in USD per 1 000 input tokens. Used for
+            cost estimation and tracking.
+        output_cost_per_1k: Cost in USD per 1 000 output tokens.
+
+    Raises:
+        BudgetExceededError: Raised by ``reserve()`` (and legacy helpers)
+            when a query would push token or cost totals past the
+            configured limits.
     """
 
     max_tokens: int | None = None
@@ -42,12 +64,20 @@ class BudgetGuard:
     ) -> None:
         """Atomically check and reserve estimated tokens before a query.
 
-        Deducts the estimate immediately so concurrent queries see reduced budget.
-        Call ``commit()`` after success to adjust to actual usage, or
-        ``release()`` on failure to return the reservation.
+        Deducts the estimate immediately so concurrent queries see reduced
+        budget. Call ``commit()`` after success to adjust to actual usage,
+        or ``release()`` on failure to return the reservation.
+
+        Args:
+            estimated_input_tokens: Expected number of input tokens for
+                the upcoming query.
+            estimated_output_tokens: Expected number of output tokens.
+            model_name: Human-readable model name used in log messages
+                and error details.
 
         Raises:
-            BudgetExceededError: If the query would exceed budget limits.
+            BudgetExceededError: If the query would exceed token or cost
+                limits.
         """
         projected_input = self.total_input_tokens + estimated_input_tokens
         projected_output = self.total_output_tokens + estimated_output_tokens
@@ -92,7 +122,18 @@ class BudgetGuard:
         estimated_output_tokens: int,
         model_name: str,
     ) -> None:
-        """Return a reservation on query failure (no tokens were actually used)."""
+        """Return a reservation on query failure.
+
+        Reverses the deduction made by a prior ``reserve()`` call when
+        no tokens were actually consumed.
+
+        Args:
+            estimated_input_tokens: The input-token estimate that was
+                originally reserved.
+            estimated_output_tokens: The output-token estimate that was
+                originally reserved.
+            model_name: Model name for logging.
+        """
         query_cost = (
             estimated_input_tokens / 1000 * self.input_cost_per_1k
             + estimated_output_tokens / 1000 * self.output_cost_per_1k
@@ -110,10 +151,20 @@ class BudgetGuard:
         reserved_input: int = 0,
         reserved_output: int = 0,
     ) -> None:
-        """Adjust reservation to actual usage after a successful query.
+        """Adjust a reservation to actual usage after a successful query.
 
-        If reserved_input/reserved_output are provided, adjusts the difference
-        between the reservation and actual usage. Otherwise adds actual usage directly.
+        When *reserved_input* / *reserved_output* are provided the method
+        swaps the reservation for the real token counts (adding the
+        difference). Otherwise it simply adds the actual usage.
+
+        Args:
+            input_tokens: Actual input tokens consumed by the query.
+            output_tokens: Actual output tokens consumed.
+            model_name: Model name for logging and per-query tracking.
+            reserved_input: Input tokens that were previously reserved
+                via ``reserve()``. Pass 0 if no reservation was made.
+            reserved_output: Output tokens that were previously reserved.
+                Pass 0 if no reservation was made.
         """
         query_cost = input_tokens / 1000 * self.input_cost_per_1k + output_tokens / 1000 * self.output_cost_per_1k
 
@@ -147,9 +198,21 @@ class BudgetGuard:
         estimated_output_tokens: int,
         model_name: str,
     ) -> None:
-        """Read-only preflight check (alias for reserve without mutation).
+        """Perform a read-only preflight budget check.
 
-        Kept for backwards compat. Prefer ``reserve()`` for concurrent use.
+        Temporarily reserves and immediately releases the estimate so
+        that ``BudgetExceededError`` is raised without mutating state.
+        Kept for backwards compatibility; prefer ``reserve()`` for
+        concurrent use.
+
+        Args:
+            estimated_input_tokens: Expected input tokens.
+            estimated_output_tokens: Expected output tokens.
+            model_name: Model name for error messages.
+
+        Raises:
+            BudgetExceededError: If the estimated usage would exceed
+                configured limits.
         """
         # Temporarily check without mutating by calling reserve then release
         self.reserve(estimated_input_tokens, estimated_output_tokens, model_name)
@@ -161,7 +224,21 @@ class BudgetGuard:
         estimated_output_tokens: int,
         model_name: str,
     ) -> None:
-        """Legacy: reserve + immediate commit with same values (kept for backwards compat)."""
+        """Reserve and immediately commit with the same estimates.
+
+        Legacy convenience method kept for backwards compatibility.
+
+        Args:
+            estimated_input_tokens: Estimated input tokens to reserve
+                and commit.
+            estimated_output_tokens: Estimated output tokens to reserve
+                and commit.
+            model_name: Model name for logging.
+
+        Raises:
+            BudgetExceededError: If the estimated usage would exceed
+                configured limits.
+        """
         self.reserve(estimated_input_tokens, estimated_output_tokens, model_name)
         # Commit with reserved amounts so the adjustment is zero (already deducted by reserve)
         self.commit(
@@ -173,14 +250,20 @@ class BudgetGuard:
         )
 
     def reset(self) -> None:
-        """Reset all tracking counters."""
+        """Reset all tracking counters to zero and clear the query log."""
         self.total_input_tokens = 0
         self.total_output_tokens = 0
         self.total_cost_usd = 0.0
         self.queries.clear()
 
     def summary(self) -> str:
-        """Return a human-readable budget summary."""
+        """Return a human-readable budget summary.
+
+        Returns:
+            A multi-line string showing token usage, cost, and query
+            count with percentage-of-limit indicators when limits are
+            configured.
+        """
         lines = ["--- Budget Summary ---"]
 
         # Token usage

@@ -1,4 +1,10 @@
-"""3-stage deliberation logic for LLM Council."""
+"""Stage execution logic for the 3-stage council deliberation pipeline.
+
+Implements ``stage1_collect_responses`` (parallel queries with caching),
+``stage2_collect_rankings`` (anonymized peer ranking with self-exclusion
+and retry), and ``stage3_synthesize_final`` (chairman synthesis with
+optional streaming). Also provides ``query_model`` and ``stream_model``.
+"""
 
 from __future__ import annotations
 

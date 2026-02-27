@@ -1,8 +1,8 @@
-"""Real-time progress visualization for LLM Council.
+"""Real-time progress visualization for council execution.
 
-Provides dual-mode rendering:
-- TTY mode: Rich live display with spinners and colors (when stderr is a terminal)
-- Non-TTY mode: Simple line-by-line log messages (when piped/subagent)
+Exports ``ProgressManager`` (Rich live display in TTY, simple log lines
+otherwise), ``ModelStatus``, and ``StageProgress`` for tracking per-model
+and per-stage state as the pipeline runs.
 """
 
 from __future__ import annotations

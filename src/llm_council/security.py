@@ -1,4 +1,10 @@
-"""Security helper functions for injection hardening."""
+"""Security utilities for prompt injection hardening and data protection.
+
+Exports ``sanitize_user_input`` (control-char stripping, injection detection),
+``sanitize_model_output`` (fence-break removal), ``format_anonymized_responses``
+(nonce-based XML fencing), and ``redact_sensitive`` (API-key scrubbing for
+logs). Used across all pipeline stages to harden prompts and protect data.
+"""
 
 from __future__ import annotations
 
@@ -55,10 +61,22 @@ def format_anonymized_responses(
 
 
 def sanitize_user_input(text: str, max_length: int = 500000) -> str:
-    """Sanitize user input before embedding in prompts.
+    """Sanitize user input before embedding it in LLM prompts.
 
-    Strips control characters (preserving newlines/tabs), truncates to max_length,
-    and detects potential prompt injection patterns.
+    Strips control characters (preserving newlines, tabs, and carriage
+    returns), truncates to *max_length*, and logs a warning when
+    potential prompt-injection patterns are detected. Injection patterns
+    are flagged but **not** blocked, since legitimate inputs may trigger
+    them.
+
+    Args:
+        text: Raw user input string to sanitize.
+        max_length: Maximum allowed character count. Input exceeding
+            this limit is silently truncated and a warning is logged.
+
+    Returns:
+        The sanitized string with control characters removed and length
+        capped at *max_length*.
     """
     # Strip control characters except newline (\n), tab (\t), carriage return (\r)
     sanitized = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)

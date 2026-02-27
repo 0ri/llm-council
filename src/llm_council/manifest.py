@@ -1,4 +1,10 @@
-"""Run manifest for tracking council execution metadata."""
+"""Run manifest for recording council execution metadata.
+
+Exports ``RunManifest`` capturing run_id, timestamp, models, chairman,
+stage counts, elapsed time, estimated tokens, and config hash. Appended
+as an HTML comment block to full council output and optionally printed
+as JSON to stderr via ``--manifest``.
+"""
 
 from __future__ import annotations
 

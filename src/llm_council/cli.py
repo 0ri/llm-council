@@ -1,4 +1,10 @@
-"""CLI entry point for LLM Council."""
+"""Command-line interface for the ``llm-council`` entry point.
+
+Parses CLI flags (``--config``, ``--stage``, ``--stream``, ``--flatten``,
+cache controls, etc.), loads configuration, and delegates to
+``run_council``. Also handles standalone actions like ``--list-models``,
+``--clear-cache``, and ``--cache-stats``.
+"""
 
 from __future__ import annotations
 

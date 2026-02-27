@@ -1,4 +1,10 @@
-"""Poe.com provider for GPT, Gemini, Grok models."""
+"""Poe provider for GPT, Gemini, and Grok models via Poe.com.
+
+Implements ``PoeProvider`` with ``query()`` and ``astream()`` methods using the
+``fastapi_poe`` SDK. Supports bot-specific flags such as ``web_search`` and
+``reasoning_effort`` (mapped to Gemini's ``--thinking_level``). Poe does not
+report token usage, so cost tracking falls back to estimation for this provider.
+"""
 
 from __future__ import annotations
 

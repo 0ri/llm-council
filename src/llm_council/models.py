@@ -1,4 +1,10 @@
-"""Pydantic configuration models for LLM Council."""
+"""Pydantic data models for council configuration and pipeline results.
+
+Defines ``CouncilConfig`` (top-level config with discriminated-union model
+entries), provider-specific configs (``BedrockModelConfig``,
+``PoeModelConfig``, ``OpenRouterModelConfig``), and stage result types
+(``Stage1Result``, ``Stage2Result``, ``Stage3Result``, ``AggregateRanking``).
+"""
 
 from __future__ import annotations
 
@@ -45,7 +51,26 @@ ModelConfig = BedrockModelConfig | PoeModelConfig | OpenRouterModelConfig
 
 
 class CouncilConfig(BaseModel):
-    """Top-level council configuration."""
+    """Top-level council configuration for a deliberation run.
+
+    Wraps the list of council member models and the designated chairman
+    model.  Typically constructed from a ``council-config.json`` file via
+    ``CouncilConfig(**json.load(f))``.
+
+    Args:
+        council_models: Non-empty list of model configurations.  Each
+            entry is a discriminated union (``BedrockModelConfig``,
+            ``PoeModelConfig``, or ``OpenRouterModelConfig``) selected
+            by the ``provider`` field.
+        chairman: Model configuration for the chairman that performs the
+            Stage 3 synthesis.  Uses the same discriminated-union type
+            as *council_models*.
+
+    Raises:
+        pydantic.ValidationError: If *council_models* is empty, a
+            required field is missing, or a provider-specific constraint
+            is violated (e.g. ``budget_tokens`` out of range).
+    """
 
     council_models: list[ModelConfig] = Field(min_length=1)
     chairman: ModelConfig

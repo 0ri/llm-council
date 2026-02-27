@@ -1,4 +1,10 @@
-"""JSONL persistence for council run records."""
+"""JSONL session persistence for council run records.
+
+Exports ``RunLogger`` which writes structured JSONL records (config,
+per-stage responses/rankings/synthesis, aggregation, summary) to a per-run
+file under ``--log-dir``. Sensitive data is automatically redacted via
+``security.redact_sensitive`` before writing.
+"""
 
 from __future__ import annotations
 
@@ -20,6 +26,7 @@ class RunLogger:
         self.filepath = self.log_dir / f"{run_id}.jsonl"
 
     def _write_record(self, record: dict[str, Any]) -> None:
+        """Serialize a record as redacted JSON and append it to the JSONL log file."""
         record["run_id"] = self.run_id
         record["timestamp"] = datetime.now(timezone.utc).isoformat()
         raw = json.dumps(record, default=str)
@@ -27,9 +34,11 @@ class RunLogger:
             f.write(redact_sensitive(raw) + "\n")
 
     def log_config(self, question: str, config: dict[str, Any]) -> None:
+        """Write the council configuration and question as a log record."""
         self._write_record({"type": "config", "question": question, "config": config})
 
     def log_stage1(self, results: list, token_usages: dict) -> None:
+        """Write Stage 1 response records with per-model token usage."""
         for result in results:
             model = result.model if hasattr(result, "model") else result.get("model")
             response = result.response if hasattr(result, "response") else result.get("response")
@@ -43,6 +52,7 @@ class RunLogger:
             )
 
     def log_stage2(self, results: list, label_mappings: dict, token_usages: dict) -> None:
+        """Write Stage 2 ranking records with label mappings and validity flags."""
         for result in results:
             model = result.model if hasattr(result, "model") else result.get("model")
             self._write_record(
@@ -62,6 +72,7 @@ class RunLogger:
             )
 
     def log_stage3(self, result: Any, token_usage: dict | None) -> None:
+        """Write the Stage 3 chairman synthesis record."""
         model = result.model if hasattr(result, "model") else result.get("model")
         response = result.response if hasattr(result, "response") else result.get("response")
         self._write_record(
@@ -74,6 +85,7 @@ class RunLogger:
         )
 
     def log_aggregation(self, rankings: list, valid_ballots: int, total_ballots: int) -> None:
+        """Write the aggregate ranking results and ballot counts."""
         self._write_record(
             {
                 "type": "aggregation",
@@ -94,6 +106,7 @@ class RunLogger:
         )
 
     def log_summary(self, cost_summary: str, elapsed: float) -> None:
+        """Write the final cost summary and elapsed time record."""
         self._write_record(
             {
                 "type": "summary",

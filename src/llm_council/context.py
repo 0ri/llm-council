@@ -25,10 +25,44 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class CouncilContext:
-    """Per-run state container for a single council execution.
+    """Dependency-injection container holding per-run council state.
 
     Every council run should receive its own ``CouncilContext`` so that
-    provider caches, circuit breakers, and progress tracking are isolated.
+    provider instances, circuit breakers, concurrency limits, and
+    progress tracking are fully isolated between concurrent runs.
+
+    Providers are created lazily via ``get_provider`` and cached for the
+    lifetime of the context.  Call ``shutdown`` (or use as an async
+    context manager) to release all resources when the run is complete.
+
+    Args:
+        poe_api_key: API key for the Poe provider.  Required if any
+            council model uses the ``poe`` provider; otherwise ``None``.
+        openrouter_api_key: API key for the OpenRouter provider.
+            Required if any council model uses the ``openrouter``
+            provider; otherwise ``None``.
+        max_concurrent: Maximum number of concurrent provider requests
+            enforced by the internal semaphore.  Defaults to 4.
+        stage2_max_retries: Number of retry attempts for Stage 2 ranking
+            requests that fail or produce invalid ballots.  Defaults to 1.
+        providers: Pre-populated provider cache.  Normally left empty so
+            that providers are created lazily by ``get_provider``.
+        circuit_breakers: Pre-populated circuit-breaker cache.  Normally
+            left empty so breakers are created lazily.
+        semaphore: Explicit ``asyncio.Semaphore`` override.  When
+            ``None``, a semaphore is created lazily from *max_concurrent*.
+        cost_tracker: ``CouncilCostTracker`` instance used to accumulate
+            token and cost metrics across all stages.
+        budget_guard: Optional ``BudgetGuard`` that enforces token and
+            cost limits.  ``None`` means no budget enforcement.
+        progress: ``ProgressManager`` for emitting human-readable
+            progress updates during the run.
+        cache: Optional ``ResponseCache`` for Stage 1 response caching.
+            ``None`` disables caching.
+
+    Raises:
+        ValueError: From ``get_provider`` if an unknown provider name is
+            requested or if a required API key is missing.
     """
 
     poe_api_key: str | None = None

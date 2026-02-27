@@ -1,4 +1,10 @@
-"""Ranking parser functions for extracting model rankings from text."""
+"""Ranking text parsers for extracting model rankings from Stage 2 output.
+
+Exports ``parse_ranking_from_text`` which tries a cascade of parsers (JSON,
+numbered list, ordinal words, comma-separated, inline) to extract ordered
+``Response X`` labels from free-form model output. Also exports
+``format_ranking`` for rendering a parsed ballot as a numbered list.
+"""
 
 from __future__ import annotations
 
@@ -231,13 +237,32 @@ def _parse_comma_separated_ranking(text: str, num_responses: int | None = None) 
 
 
 def parse_ranking_from_text(ranking_text: str, num_responses: int | None = None) -> tuple[list[str], bool]:
-    """Parse the ranking from the model's response.
+    """Parse a model ranking from free-form text into an ordered ballot.
 
-    Tries parsers in order of structural reliability and returns the first valid ballot.
-    Each parser call is wrapped in try/except so unexpected errors fall through.
+    Tries a cascade of parsers in decreasing order of structural reliability
+    (JSON → numbered list → headerless numbered list → ordinal words →
+    comma-separated → inline mentions) and returns the first valid ballot.
+    Each parser call is wrapped in ``try/except`` so unexpected errors in
+    any single parser fall through to the next.
+
+    When *num_responses* is provided, the result is validated: the ballot
+    must contain exactly that many unique labels, each matching
+    ``Response A`` … ``Response <N>``.
+
+    Args:
+        ranking_text: Raw text output from a ranking model, potentially
+            containing JSON, numbered lists, ordinal prose, or other
+            free-form ranking formats.
+        num_responses: Expected number of ``Response X`` labels in the
+            ballot.  When ``None``, length and label validation is
+            skipped.
 
     Returns:
-        Tuple of (list of "Response X" strings from best to worst, success boolean)
+        A ``(ranking, reliable)`` tuple where *ranking* is a list of
+        ``"Response X"`` strings ordered from best to worst, and
+        *reliable* is ``True`` when the ballot came from a structurally
+        unambiguous parser (all parsers except the inline fallback).
+        Returns ``([], False)`` when no parser produces a valid ballot.
     """
     parsers = [
         (_parse_json_ranking, True),
@@ -267,13 +292,19 @@ def parse_ranking_from_text(ranking_text: str, num_responses: int | None = None)
 
 
 def format_ranking(ranking: list[str]) -> str:
-    """Format a ballot as a numbered list string.
+    """Format a parsed ballot as a human-readable numbered list.
+
+    Converts an ordered list of ``"Response X"`` labels into a
+    newline-separated numbered list suitable for display or logging
+    (e.g. ``"1. Response A\\n2. Response B"``).
 
     Args:
-        ranking: Ordered list of "Response X" labels, best to worst.
+        ranking: Ordered list of ``"Response X"`` label strings, from
+            best (index 0) to worst.
 
     Returns:
-        Numbered list string, or empty string for empty list.
+        A newline-separated numbered list string.  Returns an empty
+        string when *ranking* is empty.
     """
     if not ranking:
         return ""

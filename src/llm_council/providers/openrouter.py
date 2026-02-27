@@ -1,4 +1,11 @@
-"""OpenRouter provider — stable, OpenAI-compatible API with hundreds of models."""
+"""OpenRouter provider — OpenAI-compatible API with hundreds of models.
+
+Implements ``OpenRouterProvider`` with ``query()``, ``astream()`` (SSE-based
+streaming), and ``list_models()`` for model discovery. Communicates over HTTPS
+using ``httpx``, with retry logic for rate-limit and server errors. Unlike Poe,
+OpenRouter returns real token usage data, enabling accurate cost tracking in the
+council pipeline.
+"""
 
 from __future__ import annotations
 
@@ -54,6 +61,7 @@ class OpenRouterProvider:
         self._client: httpx.AsyncClient | None = None
 
     def _get_client(self) -> httpx.AsyncClient:
+        """Return the httpx async client, creating it on first use."""
         if self._client is None:
             self._client = httpx.AsyncClient(
                 base_url=OPENROUTER_BASE_URL,

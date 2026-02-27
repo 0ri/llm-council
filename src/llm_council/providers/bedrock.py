@@ -1,4 +1,11 @@
-"""AWS Bedrock provider for Anthropic models."""
+"""AWS Bedrock provider for Anthropic Claude models.
+
+Implements ``BedrockProvider`` with both synchronous ``query()`` and streaming
+``astream()`` methods via the ``bedrock-runtime`` boto3 client. Supports
+extended thinking (``budget_tokens``), automatic retry with exponential back-off
+for transient errors, and per-request timeout enforcement. Used by the council
+pipeline in Stage 1 (responses) and Stage 3 (chairman synthesis).
+"""
 
 from __future__ import annotations
 
@@ -65,6 +72,7 @@ class BedrockProvider:
         self._client = None
 
     def _get_client(self):
+        """Return the boto3 bedrock-runtime client, creating it on first use."""
         if self._client is None:
             import boto3
 

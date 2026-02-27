@@ -1,4 +1,10 @@
-"""Project directory flattener for feeding codebases into the council."""
+"""Codebase flattener for serializing a project directory into markdown.
+
+Exports ``flatten_directory`` which walks a directory, respects ``.gitignore``,
+skips binaries, and produces a single markdown document for LLM context.
+Supports ``codemap`` mode for structural skeletons (AST for Python, heuristic
+for others). Also provides the ``flatten-project`` CLI via ``main()``.
+"""
 
 from __future__ import annotations
 

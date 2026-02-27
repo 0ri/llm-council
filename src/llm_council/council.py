@@ -1,4 +1,10 @@
-"""Main orchestrator for the LLM Council deliberation process."""
+"""Main orchestrator for the LLM Council 3-stage deliberation pipeline.
+
+Exports ``run_council`` (drives Stage 1 responses → Stage 2 ranking →
+Stage 3 synthesis) and ``validate_config`` for pre-flight checks.
+Coordinates caching, budget, cost tracking, persistence, and progress
+through a ``CouncilContext``.
+"""
 
 from __future__ import annotations
 
@@ -27,7 +33,31 @@ logger = logging.getLogger("llm-council")
 
 
 def validate_config(config: dict) -> list[str]:
-    """Validate council configuration. Returns list of error messages (empty = valid)."""
+    """Validate a council configuration dictionary.
+
+    Check that *config* contains valid ``council_models`` and ``chairman``
+    entries, that provider names are recognised, that required
+    provider-specific fields are present, and that budget values (when
+    supplied) are within acceptable ranges.  Environment variables
+    (``POE_API_KEY``, ``OPENROUTER_API_KEY``) are also checked when the
+    corresponding providers appear in the config.
+
+    Args:
+        config: Raw configuration dictionary, typically loaded from a
+            ``council-config.json`` file.  Expected top-level keys include
+            ``council_models`` (list of model dicts) and ``chairman``
+            (a single model dict).  An optional ``budget`` dict may
+            contain ``max_tokens``, ``max_cost_usd``,
+            ``input_cost_per_1k``, and ``output_cost_per_1k``.
+
+    Returns:
+        A list of human-readable validation error strings.  An empty list
+        means the configuration is valid.
+
+    Raises:
+        TypeError: If *config* is not a dictionary (raised by Pydantic
+            when unpacking fails).
+    """
     errors: list[str] = []
 
     # Try to validate basic structure with Pydantic
@@ -159,23 +189,54 @@ async def run_council(
     stream: bool = False,
     on_chunk: Callable[[str], Awaitable[None]] | None = None,
 ) -> str:
-    """Run the council process up to the specified stage.
+    """Run the LLM Council 3-stage deliberation pipeline.
+
+    Execute up to *max_stage* stages of the council process:
+
+    * **Stage 1** — collect independent responses from every council model.
+    * **Stage 2** — each model ranks the anonymised peer responses.
+    * **Stage 3** — the chairman synthesises a final answer.
+
+    The function handles input sanitisation, configuration validation,
+    caching, budget enforcement, cost tracking, JSONL persistence, and
+    progress reporting through the ``CouncilContext``.
 
     Args:
-        question: The question to ask the council
-        config: Council configuration dict
-        print_manifest: If True, print manifest JSON to stderr
-        log_dir: If set, write JSONL run logs to this directory
-        context_factory: Optional callable returning a CouncilContext (for testing)
-        max_stage: Maximum stage to run (1, 2, or 3). Default: 3 (full run).
-        seed: Optional seed for reproducible bootstrap CI.
-        use_cache: If True, use local SQLite cache for Stage 1 responses.
-        cache_ttl: TTL in seconds for cached responses. Default: 86400 (24 hours).
-        stream: If True, use streaming for Stage 3 synthesis.
-        on_chunk: Optional async callback invoked for each streamed text chunk.
+        question: The user question to present to the council.
+        config: Council configuration dictionary (see ``validate_config``
+            for the expected schema).
+        print_manifest: If ``True``, write the run manifest as JSON to
+            *stderr* after the run completes.
+        log_dir: Directory path for JSONL run logs.  When set, a
+            ``RunLogger`` writes per-stage data to this directory.
+        context_factory: Optional zero-argument callable that returns a
+            ``CouncilContext``.  Primarily used in tests to inject a
+            pre-configured context.
+        max_stage: Highest stage to execute (1, 2, or 3).  Stages beyond
+            this value are skipped and partial output is returned.
+        seed: Random seed passed to the bootstrap confidence-interval
+            calculation in Stage 2 aggregation for reproducibility.
+        use_cache: If ``True``, Stage 1 responses are cached in a local
+            SQLite database so repeated identical queries are served from
+            cache.
+        cache_ttl: Time-to-live in seconds for cached Stage 1 responses.
+            Defaults to 86 400 (24 hours).
+        stream: If ``True``, Stage 3 synthesis uses the streaming
+            provider interface and delivers chunks via *on_chunk*.
+        on_chunk: Async callback invoked with each text chunk during
+            streaming Stage 3 synthesis.  Ignored when *stream* is
+            ``False``.
 
     Returns:
-        Formatted council output string
+        A formatted string containing the council output.  The exact
+        format depends on *max_stage*: Stage-1-only output, Stage-1+2
+        output with rankings, or the full 3-stage output including the
+        chairman synthesis and an appended run-manifest comment block.
+
+    Raises:
+        BudgetExceededError: If the cumulative token or cost usage
+            exceeds the limits defined in the ``budget`` section of
+            *config*.
     """
     # Track start time for manifest
     start_time = time.time()
