@@ -20,9 +20,37 @@ DEFAULT_CACHE_DIR = Path.home() / ".llm-council"
 DEFAULT_CACHE_DB = DEFAULT_CACHE_DIR / "cache.db"
 
 
-def _cache_key(question: str, model_name: str, model_id: str) -> str:
-    """Compute a deterministic cache key from question + model identity."""
+_OUTPUT_AFFECTING_PARAMS = frozenset({
+    "temperature",
+    "reasoning_effort",
+    "reasoning_max_tokens",
+    "max_tokens",
+    "budget_tokens",
+    "web_search",
+})
+
+
+def _cache_key(
+    question: str,
+    model_name: str,
+    model_id: str,
+    model_config: dict[str, Any] | None = None,
+) -> str:
+    """Compute a deterministic cache key from question + model identity + params.
+
+    When *model_config* is provided, output-affecting parameters (e.g.
+    ``temperature``, ``reasoning_effort``) are included in the hash so that
+    config changes invalidate stale cache entries.
+    """
     raw = f"{question}\x00{model_name}\x00{model_id}"
+    if model_config:
+        params = {
+            k: v
+            for k, v in model_config.items()
+            if k in _OUTPUT_AFFECTING_PARAMS and v is not None
+        }
+        if params:
+            raw += "\x00" + json.dumps(params, sort_keys=True)
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
@@ -77,7 +105,13 @@ class ResponseCache:
             self._conn.commit()
         return self._conn
 
-    def get(self, question: str, model_name: str, model_id: str) -> tuple[str, dict[str, Any] | None] | None:
+    def get(
+        self,
+        question: str,
+        model_name: str,
+        model_id: str,
+        model_config: dict[str, Any] | None = None,
+    ) -> tuple[str, dict[str, Any] | None] | None:
         """Look up a cached response for a given question and model.
 
         Args:
@@ -85,6 +119,9 @@ class ResponseCache:
             model_name: Display name of the model (e.g. ``"claude-sonnet"``).
             model_id: Provider-specific model identifier used to
                 disambiguate models that share a display name.
+            model_config: Optional full model configuration dict.  When
+                provided, output-affecting parameters are included in the
+                cache key so that config changes cause a cache miss.
 
         Returns:
             A ``(response_text, token_usage)`` tuple on cache hit, where
@@ -92,7 +129,7 @@ class ResponseCache:
             data was not recorded. Returns ``None`` on cache miss or if
             the entry has expired.
         """
-        key = _cache_key(question, model_name, model_id)
+        key = _cache_key(question, model_name, model_id, model_config)
         conn = self._get_conn()
         sql = (
             "SELECT response, token_usage FROM responses"
@@ -115,6 +152,7 @@ class ResponseCache:
         model_id: str,
         response: str,
         token_usage: dict[str, Any] | None,
+        model_config: dict[str, Any] | None = None,
     ) -> None:
         """Store a model response in the cache.
 
@@ -127,8 +165,11 @@ class ResponseCache:
             response: The full text response from the model.
             token_usage: Optional dict of token-usage metadata
                 (e.g. ``{"input_tokens": 120, "output_tokens": 350}``).
+            model_config: Optional full model configuration dict.  When
+                provided, output-affecting parameters are included in the
+                cache key (must match the key used in ``get``).
         """
-        key = _cache_key(question, model_name, model_id)
+        key = _cache_key(question, model_name, model_id, model_config)
         conn = self._get_conn()
         conn.execute(
             "INSERT OR REPLACE INTO responses (cache_key, model_name, response, token_usage) VALUES (?, ?, ?, ?)",

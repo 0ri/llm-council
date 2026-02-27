@@ -39,15 +39,11 @@ class TestLoadConfig:
             os.unlink(temp_path)
 
     def test_load_config_with_missing_file(self):
-        """Test that missing config file returns default config."""
-        result = load_config("/nonexistent/path/config.json")
-
-        # Should return default config
-        assert "council_models" in result
-        assert "chairman" in result
-        assert len(result["council_models"]) > 0
-        assert result["council_models"][0]["name"] == "Claude Opus 4.6"
-        assert result["chairman"]["name"] == "Gemini-3.1-Pro"
+        """Test that missing config file exits with helpful error."""
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("sys.stderr"):
+                load_config("/nonexistent/path/config.json")
+        assert exc_info.value.code == 1
 
     def test_load_config_with_invalid_json(self):
         """Test that invalid JSON causes SystemExit."""
@@ -79,13 +75,12 @@ class TestLoadConfig:
                     mock_open.assert_called()
 
     def test_load_config_no_default_paths_exist(self):
-        """Test that default config is returned when no default paths exist."""
+        """Test that missing default paths exits with helpful error."""
         with patch("os.path.exists", return_value=False):
-            result = load_config()
-
-            # Should return default config
-            assert "council_models" in result
-            assert "chairman" in result
+            with pytest.raises(SystemExit) as exc_info:
+                with patch("sys.stderr"):
+                    load_config()
+            assert exc_info.value.code == 1
 
     def test_load_config_with_io_error(self):
         """Test that IO errors cause SystemExit."""
@@ -102,27 +97,11 @@ class TestLoadConfig:
         finally:
             os.unlink(temp_path)
 
-    def test_default_config_structure(self):
-        """Test that default config has expected structure."""
-        result = load_config("/nonexistent/file.json")
-
-        # Check council_models
-        assert isinstance(result["council_models"], list)
-        assert len(result["council_models"]) >= 3  # At least 3 models
-
-        # All default models should use OpenRouter
-        for model in result["council_models"]:
-            assert model["provider"] == "openrouter"
-            assert "model_id" in model
-
-        # Check first model (Claude)
-        claude = result["council_models"][0]
-        assert claude["name"] == "Claude Opus 4.6"
-        assert "anthropic" in claude["model_id"]
-
-        # Check chairman
-        assert result["chairman"]["provider"] == "openrouter"
-        assert "model_id" in result["chairman"]
+    def test_missing_config_error_message(self):
+        """Test that missing config prints helpful error message."""
+        with pytest.raises(SystemExit) as exc_info:
+            load_config("/nonexistent/file.json")
+        assert exc_info.value.code == 1
 
 
 class TestSetupLogging:

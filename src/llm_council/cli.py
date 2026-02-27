@@ -50,36 +50,23 @@ def load_config(config_path: str | None = None) -> dict:
                 break
 
     if config_path is None or not os.path.exists(config_path):
-        # Return default config using OpenRouter (single API key covers all models)
-        return {
-            "council_models": [
-                {
-                    "name": "Claude Opus 4.6",
-                    "provider": "openrouter",
-                    "model_id": "anthropic/claude-opus-4.6",
-                },
-                {
-                    "name": "GPT-5.3-Codex",
-                    "provider": "openrouter",
-                    "model_id": "openai/gpt-5.3-codex",
-                },
-                {
-                    "name": "Gemini-3.1-Pro",
-                    "provider": "openrouter",
-                    "model_id": "google/gemini-3.1-pro-preview",
-                },
-                {
-                    "name": "Grok 4",
-                    "provider": "openrouter",
-                    "model_id": "x-ai/grok-4",
-                },
-            ],
-            "chairman": {
-                "name": "Gemini-3.1-Pro",
-                "provider": "openrouter",
-                "model_id": "google/gemini-3.1-pro-preview",
-            },
-        }
+        searched = "\n".join(
+            f"  - {p}" for p in [
+                os.path.join(os.getcwd(), ".claude", "council-config.json"),
+                os.path.expanduser("~/.claude/council-config.json"),
+            ]
+        )
+        print(
+            "Error: No council config file found.\n"
+            "\n"
+            "Searched:\n"
+            f"{searched}\n"
+            "\n"
+            "Create a config file at one of these paths, or pass --config PATH.\n"
+            "See README.md for configuration examples.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     try:
         with open(config_path) as f:

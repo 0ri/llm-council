@@ -375,7 +375,7 @@ async def stage1_collect_responses(
         model_name = model_config.get("name", "unknown")
         model_id = model_config.get("model_id", model_config.get("bot_name", ""))
         if ctx.cache is not None:
-            hit = ctx.cache.get(user_query, model_name, model_id)
+            hit = ctx.cache.get(user_query, model_name, model_id, model_config)
             if hit is not None:
                 response_text, token_usage = hit
                 cached_responses[model_name] = {"content": response_text}
@@ -411,6 +411,7 @@ async def stage1_collect_responses(
                     model_id,
                     response.get("content", ""),
                     token_usages.get(model_name),
+                    model_config,
                 )
 
     # Merge cached + fresh responses
@@ -423,7 +424,11 @@ async def stage1_collect_responses(
         model_name = model_config.get("name", "unknown")
         response = all_responses.get(model_name)
         if response is not None:
-            stage1_results.append(Stage1Result(model=model_name, response=response.get("content", "")))
+            content = response.get("content", "")
+            if not content or not content.strip():
+                logger.warning(f"Filtering out empty response from {model_name}")
+                continue
+            stage1_results.append(Stage1Result(model=model_name, response=content))
 
     if progress:
         cache_hits = len(cached_responses)
@@ -519,6 +524,8 @@ async def stage2_collect_rankings(
     if stage2_max_retries is None:
         stage2_max_retries = ctx.stage2_max_retries
 
+    rng = random.Random()
+
     progress = ctx.progress
 
     if progress:
@@ -558,7 +565,7 @@ async def stage2_collect_rankings(
 
         # Randomize order for this ranker (position bias mitigation)
         response_order = list(range(len(filtered_responses)))
-        random.shuffle(response_order)
+        rng.shuffle(response_order)
 
         # Create labels for this ranker's view
         labels = [chr(65 + i) for i in range(len(filtered_responses))]  # A, B, C, ...

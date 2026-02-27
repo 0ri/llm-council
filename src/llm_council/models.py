@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class BedrockModelConfig(BaseModel):
@@ -45,6 +45,8 @@ class OpenRouterModelConfig(BaseModel):
     model_id: str
     temperature: float | None = None
     max_tokens: int | None = None
+    reasoning_effort: Literal["xhigh", "high", "medium", "low", "minimal"] | None = None
+    reasoning_max_tokens: int | None = None
 
 
 # Discriminated union on the 'provider' field
@@ -81,6 +83,21 @@ class CouncilConfig(BaseModel):
     soft_timeout: float = 300
     min_responses: int | None = None
     stage2_retries: int = 1
+
+    @model_validator(mode="after")
+    def _validate_council_models(self) -> CouncilConfig:
+        if len(self.council_models) > 26:
+            raise ValueError(
+                "Council supports a maximum of 26 models (Response A-Z), "
+                f"got {len(self.council_models)}"
+            )
+        names = [m.name for m in self.council_models]
+        duplicates = sorted({n for n in names if names.count(n) > 1})
+        if duplicates:
+            raise ValueError(
+                f"Duplicate model names in council_models: {', '.join(duplicates)}"
+            )
+        return self
 
 
 class Stage1Result(BaseModel):

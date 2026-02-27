@@ -18,9 +18,9 @@ from .poe import PoeProvider
 
 # Configurable defaults
 DEFAULT_REGION = "us-east-1"
-DEFAULT_MAX_TOKENS = 16000
-DEFAULT_TIMEOUT = 360
-DEFAULT_SOFT_TIMEOUT = 300
+DEFAULT_MAX_TOKENS = 16384
+DEFAULT_TIMEOUT = 600
+DEFAULT_SOFT_TIMEOUT = 480
 DEFAULT_MAX_RETRIES = 2
 
 # Timeout for individual model queries (seconds)
@@ -141,6 +141,7 @@ def fallback_astream(provider: Provider, prompt: str, model_config: dict, timeou
 
     async def _single_chunk() -> typing.AsyncIterator[str]:
         text, usage = await provider.query(prompt, model_config, timeout)
+        result.usage = usage
         yield text
 
     result = StreamResult(_single_chunk())

@@ -122,7 +122,7 @@ def sanitize_model_output(text: str, nonce: str | None = None) -> str:
     Returns:
         Sanitized text with fence-breaking attempts removed
     """
-    replacement = "[FENCE_BREAK_ATTEMPT_REMOVED]"
+    replacement = ""
 
     if nonce:
         escaped = re.escape(nonce)

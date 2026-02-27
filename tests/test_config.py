@@ -104,8 +104,9 @@ class TestLoadConfig:
         assert loaded["council_models"] == sample_config["council_models"]
         assert loaded["chairman"] == sample_config["chairman"]
 
-    def test_load_missing_file_returns_defaults(self):
-        config = load_config("/nonexistent/path/config.json")
-        assert "council_models" in config
-        assert "chairman" in config
-        assert len(config["council_models"]) > 0
+    def test_load_missing_file_exits(self):
+        import pytest
+
+        with pytest.raises(SystemExit) as exc_info:
+            load_config("/nonexistent/path/config.json")
+        assert exc_info.value.code == 1
