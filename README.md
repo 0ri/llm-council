@@ -5,7 +5,7 @@
 ![CI](https://github.com/0ri/llm-council/actions/workflows/ci.yml/badge.svg)
 ![Coverage](https://img.shields.io/badge/coverage-70%25+-brightgreen)
 
-Multi-model LLM deliberation with anonymized peer review. Available as a Claude Code skill, an OpenClaw skill, or a standalone CLI.
+Multi-model LLM deliberation with anonymized peer review. Available as a Claude Code skill, an OpenClaw skill, or a standalone CLI. Inspired by [Andrej Karpathy's llm-council](https://github.com/karpathy/llm-council).
 
 ## What It Does
 
