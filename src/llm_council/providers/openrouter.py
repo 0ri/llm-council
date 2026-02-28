@@ -18,7 +18,10 @@ import httpx
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 if TYPE_CHECKING:
+    from ..models import ModelConfig
     from . import ProviderRequest, StreamResult, UsageTrackingStream
+
+from ..models import coerce_model_config
 
 logger = logging.getLogger("llm-council")
 
@@ -93,19 +96,20 @@ class OpenRouterProvider:
         return self._client
 
     @staticmethod
-    def _build_body(model_config: dict, api_messages: list[dict[str, str]]) -> dict[str, Any]:
+    def _build_body(model_config: ModelConfig, api_messages: list[dict[str, str]]) -> dict[str, Any]:
         """Build the request body from model config and messages."""
         body: dict[str, Any] = {
-            "model": model_config["model_id"],
+            "model": model_config.model_id,
             "messages": api_messages,
-            "max_tokens": model_config.get("max_tokens", 16384),
+            "max_tokens": getattr(model_config, "max_tokens", None) or 16384,
         }
-        if model_config.get("temperature") is not None:
-            body["temperature"] = model_config["temperature"]
+        temperature = getattr(model_config, "temperature", None)
+        if temperature is not None:
+            body["temperature"] = temperature
 
         # Build reasoning config if either effort or max_tokens is set
-        reasoning_effort = model_config.get("reasoning_effort")
-        reasoning_max_tokens = model_config.get("reasoning_max_tokens")
+        reasoning_effort = getattr(model_config, "reasoning_effort", None)
+        reasoning_max_tokens = getattr(model_config, "reasoning_max_tokens", None)
         if reasoning_effort or reasoning_max_tokens:
             reasoning: dict[str, Any] = {}
             if reasoning_max_tokens:
@@ -119,7 +123,7 @@ class OpenRouterProvider:
     async def query(
         self,
         prompt: str,
-        model_config: dict,
+        model_config: ModelConfig,
         timeout: int,
         request: ProviderRequest | None = None,
     ) -> tuple[str, dict[str, Any] | None]:
@@ -131,13 +135,14 @@ class OpenRouterProvider:
         """
         from . import MAX_RETRIES
 
-        # Use typed request if provided, fall back to legacy model_config keys
+        model_config = coerce_model_config(model_config)
+        # Use typed request if provided, fall back to minimal defaults
         if request is not None:
             messages = request.messages
             system_message = request.system_message
         else:
-            messages = model_config.get("_messages", [{"role": "user", "content": prompt}])
-            system_message = model_config.get("_system_message")
+            messages = [{"role": "user", "content": prompt}]
+            system_message = None
 
         @retry(
             stop=stop_after_attempt(MAX_RETRIES),
@@ -187,7 +192,7 @@ class OpenRouterProvider:
     def astream(
         self,
         prompt: str,
-        model_config: dict,
+        model_config: ModelConfig,
         timeout: int,
         request: ProviderRequest | None = None,
     ) -> StreamResult:
@@ -198,13 +203,14 @@ class OpenRouterProvider:
         """
         from . import MAX_RETRIES, StreamResult, UsageTrackingStream
 
-        # Use typed request if provided, fall back to legacy model_config keys
+        model_config = coerce_model_config(model_config)
+        # Use typed request if provided, fall back to minimal defaults
         if request is not None:
             messages = request.messages
             system_message = request.system_message
         else:
-            messages = model_config.get("_messages", [{"role": "user", "content": prompt}])
-            system_message = model_config.get("_system_message")
+            messages = [{"role": "user", "content": prompt}]
+            system_message = None
 
         usage_info: dict[str, int] = {}
 

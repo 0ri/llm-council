@@ -11,6 +11,8 @@ from __future__ import annotations
 import json
 import re
 
+from .models import generate_response_labels
+
 ORDINALS: dict[str, int] = {
     "first": 1,
     "second": 2,
@@ -283,7 +285,7 @@ def parse_ranking_from_text(ranking_text: str, num_responses: int | None = None)
                     continue
                 if len(set(result)) != len(result):
                     continue
-                valid_labels = {f"Response {chr(65 + i)}" for i in range(num_responses)}
+                valid_labels = set(generate_response_labels(num_responses))
                 if not all(r in valid_labels for r in result):
                     continue
             return (result, reliable)

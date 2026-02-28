@@ -168,7 +168,7 @@ class TestStage2CollectRankings:
             prompts_by_model = {}
 
             async def mock_query_response(model_config, messages, *args, **kwargs):
-                model_name = model_config.get("name")
+                model_name = model_config.name
                 prompt = messages[0]["content"]
                 prompts_by_model[model_name] = prompt
                 return {
@@ -288,7 +288,7 @@ class TestStage2QualityGate:
         with patch("llm_council.stages.query_model") as mock_query:
 
             async def mock_query_response(model_config, messages, *args, **kwargs):
-                name = model_config.get("name", "unknown")
+                name = model_config.name
                 call_counts[name] = call_counts.get(name, 0) + 1
 
                 if name == "Model2" and call_counts[name] == 1:
@@ -329,7 +329,7 @@ class TestStage2QualityGate:
         with patch("llm_council.stages.query_model") as mock_query:
 
             async def mock_query_response(model_config, messages, *args, **kwargs):
-                name = model_config.get("name", "unknown")
+                name = model_config.name
                 call_counts[name] = call_counts.get(name, 0) + 1
                 return {"content": '```json\n{"ranking": ["Response A", "Response B"]}\n```'}, None
 
@@ -367,7 +367,7 @@ class TestStage2QualityGate:
         with patch("llm_council.stages.query_model") as mock_query:
 
             async def mock_query_response(model_config, messages, *args, **kwargs):
-                name = model_config.get("name", "unknown")
+                name = model_config.name
                 call_counts[name] = call_counts.get(name, 0) + 1
 
                 if name == "Model2":
@@ -409,7 +409,7 @@ class TestStage2QualityGate:
         with patch("llm_council.stages.query_model") as mock_query:
 
             async def mock_query_response(model_config, messages, *args, **kwargs):
-                name = model_config.get("name", "unknown")
+                name = model_config.name
                 call_counts[name] = call_counts.get(name, 0) + 1
 
                 if name == "Model2":

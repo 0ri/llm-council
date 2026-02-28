@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
+from llm_council.providers import ProviderRequest
 from llm_council.providers.openrouter import (
     OpenRouterAPIError,
     OpenRouterProvider,
@@ -104,12 +105,12 @@ class TestOpenRouterProvider:
             mock_client.post = AsyncMock(return_value=mock_response)
             mock_client_fn.return_value = mock_client
 
-            config = {
-                "model_id": "test",
-                "_system_message": "You are a helpful assistant",
-                "_messages": [{"role": "user", "content": "Hello"}],
-            }
-            await provider.query("", config, timeout=30)
+            config = {"provider": "openrouter", "model_id": "test"}
+            request = ProviderRequest(
+                messages=[{"role": "user", "content": "Hello"}],
+                system_message="You are a helpful assistant",
+            )
+            await provider.query("", config, timeout=30, request=request)
 
             call_args = mock_client.post.call_args
             body = call_args[1]["json"]
@@ -134,6 +135,7 @@ class TestOpenRouterProvider:
             mock_client_fn.return_value = mock_client
 
             config = {
+                "provider": "openrouter",
                 "model_id": "test",
                 "temperature": 0.7,
                 "max_tokens": 4096,

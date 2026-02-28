@@ -20,7 +20,17 @@ from typing import Any
 from .budget import BudgetExceededError
 from .context import CouncilContext
 from .cost import estimate_tokens
-from .models import AggregateRanking, Stage1Result, Stage2Result, Stage3Result
+from .models import (
+    AggregateRanking,
+    ModelConfig,
+    Stage1Result,
+    Stage2Result,
+    Stage3Result,
+    coerce_model_config,
+    generate_letter_labels,
+    generate_response_labels,
+    get_model_identifier,
+)
 from .parsing import parse_ranking_from_text
 from .progress import ModelStatus
 from .prompts import (
@@ -36,7 +46,7 @@ logger = logging.getLogger("llm-council")
 
 
 async def query_model(
-    model_config: dict[str, Any],
+    model_config: ModelConfig,
     messages: list[dict[str, str]],
     ctx: CouncilContext,
     system_message: str | None = None,
@@ -46,10 +56,7 @@ async def query_model(
     """Query a model through its provider, with timeout.
 
     Args:
-        model_config: Dict with 'provider', 'model_id' or 'bot_name', and optional:
-            - budget_tokens: int (Bedrock extended thinking)
-            - web_search: bool (Poe web search)
-            - reasoning_effort: str (Poe reasoning level)
+        model_config: Typed ModelConfig with provider-specific attributes.
         messages: List of message dicts
         ctx: CouncilContext providing providers, circuit breakers, semaphore
         system_message: Optional system message for injection hardening
@@ -59,15 +66,16 @@ async def query_model(
     Returns:
         Tuple of (response dict with 'content' key or None, token usage dict or None)
     """
-    provider_name = model_config.get("provider", "poe")
-    model_name = model_config.get("name", "unknown")
-    bot_name = model_config.get("bot_name", "")
+    model_config = coerce_model_config(model_config)
+    provider_name = model_config.provider
+    model_name = model_config.name
+    bot_name = getattr(model_config, "bot_name", "")
 
     # Build model-specific circuit breaker key
     if provider_name == "poe" and bot_name:
         cb_key = f"{provider_name}:{bot_name}"
     elif provider_name == "openrouter":
-        cb_key = f"openrouter:{model_config.get('model_id', model_name)}"
+        cb_key = f"openrouter:{getattr(model_config, 'model_id', model_name)}"
     else:
         cb_key = f"{provider_name}:{model_name}"
 
@@ -88,7 +96,7 @@ async def query_model(
         estimated_input = estimate_tokens(input_text)
         estimated_output = 2000  # conservative estimate
         try:
-            ctx.budget_guard.reserve(estimated_input, estimated_output, model_name)
+            await ctx.budget_guard.areserve(estimated_input, estimated_output, model_name)
             budget_reserved = True
         except BudgetExceededError:
             logger.warning(f"Budget exceeded, skipping {model_name}")
@@ -118,25 +126,25 @@ async def query_model(
         if budget_reserved:
             actual_in = token_usage.get("input_tokens", estimated_input) if token_usage else estimated_input
             actual_out = token_usage.get("output_tokens", estimated_output) if token_usage else estimated_output
-            ctx.budget_guard.commit(actual_in, actual_out, model_name, estimated_input, estimated_output)
+            await ctx.budget_guard.acommit(actual_in, actual_out, model_name, estimated_input, estimated_output)
 
         return {"content": content}, token_usage
     except asyncio.TimeoutError:
         cb.record_failure()
         if budget_reserved:
-            ctx.budget_guard.release(estimated_input, estimated_output, model_name)
+            await ctx.budget_guard.arelease(estimated_input, estimated_output, model_name)
         logger.warning(f"Timeout querying {model_name} after {MODEL_TIMEOUT}s")
         return None, None
     except Exception as e:
         cb.record_failure()
         if budget_reserved:
-            ctx.budget_guard.release(estimated_input, estimated_output, model_name)
+            await ctx.budget_guard.arelease(estimated_input, estimated_output, model_name)
         logger.error(f"Error querying {model_name}: {e}")
         return None, None
 
 
 async def stream_model(
-    model_config: dict[str, Any],
+    model_config: ModelConfig,
     messages: list[dict[str, str]],
     ctx: CouncilContext,
     on_chunk: Callable[[str], Awaitable[None]] | None = None,
@@ -147,7 +155,7 @@ async def stream_model(
     """Stream a model response, falling back to query_model on error.
 
     Args:
-        model_config: Dict with provider info and model parameters.
+        model_config: Typed ModelConfig with provider-specific attributes.
         messages: List of message dicts.
         ctx: CouncilContext providing providers, circuit breakers, semaphore.
         on_chunk: Optional async callback invoked for each text chunk.
@@ -157,15 +165,16 @@ async def stream_model(
     Returns:
         Tuple of (accumulated text, token usage dict or None).
     """
-    provider_name = model_config.get("provider", "poe")
-    model_name = model_config.get("name", "unknown")
-    bot_name = model_config.get("bot_name", "")
+    model_config = coerce_model_config(model_config)
+    provider_name = model_config.provider
+    model_name = model_config.name
+    bot_name = getattr(model_config, "bot_name", "")
 
     # Build circuit breaker key
     if provider_name == "poe" and bot_name:
         cb_key = f"{provider_name}:{bot_name}"
     elif provider_name == "openrouter":
-        cb_key = f"openrouter:{model_config.get('model_id', model_name)}"
+        cb_key = f"openrouter:{getattr(model_config, 'model_id', model_name)}"
     else:
         cb_key = f"{provider_name}:{model_name}"
 
@@ -188,7 +197,7 @@ async def stream_model(
         estimated_input = estimate_tokens(input_text)
         estimated_output = 2000
         try:
-            ctx.budget_guard.reserve(estimated_input, estimated_output, model_name)
+            await ctx.budget_guard.areserve(estimated_input, estimated_output, model_name)
             budget_reserved = True
         except BudgetExceededError:
             logger.warning(f"Budget exceeded, skipping {model_name}")
@@ -223,15 +232,19 @@ async def stream_model(
         if budget_reserved:
             actual_in = usage.get("input_tokens", estimated_input) if usage else estimated_input
             actual_out = usage.get("output_tokens", estimated_output) if usage else estimated_output
-            ctx.budget_guard.commit(actual_in, actual_out, model_name, estimated_input, estimated_output)
+            await ctx.budget_guard.acommit(actual_in, actual_out, model_name, estimated_input, estimated_output)
 
         return accumulated, usage
 
     except Exception as e:
         cb.record_failure()
         if budget_reserved:
-            ctx.budget_guard.release(estimated_input, estimated_output, model_name)
+            await ctx.budget_guard.arelease(estimated_input, estimated_output, model_name)
         logger.warning(f"Streaming error for {model_name}: {e}, falling back to query_model")
+
+        # Notify the caller that streaming was interrupted before falling back
+        if len(accumulated) > 0 and on_chunk is not None:
+            await on_chunk("\n\n[Streaming interrupted, regenerating...]\n\n")
 
         # Fall back to query_model
         result, usage = await query_model(model_config, messages, ctx, system_message)
@@ -241,7 +254,7 @@ async def stream_model(
 
 
 async def query_models_parallel(
-    model_configs: list[dict[str, Any]],
+    model_configs: list[ModelConfig],
     messages: list[dict[str, str]],
     ctx: CouncilContext,
     *,
@@ -252,7 +265,7 @@ async def query_models_parallel(
     """Query multiple models in parallel via hybrid providers.
 
     Args:
-        model_configs: List of model config dicts
+        model_configs: List of typed ModelConfig objects
         messages: Messages to send to each model
         ctx: CouncilContext providing providers, circuit breakers, semaphore, progress
         system_message: Optional system message for injection hardening
@@ -262,6 +275,7 @@ async def query_models_parallel(
     Returns:
         Tuple of (response dict, token usage dict) where both map model name to values
     """
+    model_configs = [coerce_model_config(c) for c in model_configs]
     progress = ctx.progress
 
     # Default: wait for all models (was min(2, n-1) which dropped slow models)
@@ -271,8 +285,8 @@ async def query_models_parallel(
     if soft_timeout is None:
         soft_timeout = float(SOFT_TIMEOUT)
 
-    async def safe_query(config: dict[str, Any]) -> tuple[str, dict[str, Any] | None, dict[str, Any] | None]:
-        name = config.get("name", "unknown")
+    async def safe_query(config: ModelConfig) -> tuple[str, dict[str, Any] | None, dict[str, Any] | None]:
+        name = config.name
         start = time.time()
         if progress:
             await progress.update_model(name, ModelStatus.QUERYING)
@@ -307,7 +321,7 @@ async def query_models_parallel(
 
     # Map tasks to model names for safe lookup on cancellation
     task_to_model: dict[asyncio.Task, str] = {
-        task: config.get("name", "unknown") for task, config in zip(tasks, model_configs, strict=True)
+        task: config.name for task, config in zip(tasks, model_configs, strict=True)
     }
 
     while pending_tasks:
@@ -360,7 +374,7 @@ async def query_models_parallel(
 
 async def stage1_collect_responses(
     user_query: str,
-    council_models: list[dict[str, Any]],
+    council_models: list[ModelConfig],
     ctx: CouncilContext,
     *,
     soft_timeout: float | None = None,
@@ -373,10 +387,11 @@ async def stage1_collect_responses(
     Returns:
         Tuple of (stage1_results, token_usages)
     """
+    council_models = [coerce_model_config(c) for c in council_models]
     progress = ctx.progress
 
     if progress:
-        model_names = [m.get("name", "unknown") for m in council_models]
+        model_names = [m.name for m in council_models]
         await progress.start_stage(1, "Collecting responses", model_names)
 
     messages = [{"role": "user", "content": user_query}]
@@ -384,11 +399,11 @@ async def stage1_collect_responses(
     # Check cache for each model
     cached_responses: dict[str, dict[str, Any] | None] = {}
     cached_usages: dict[str, dict[str, Any] | None] = {}
-    models_to_query: list[dict[str, Any]] = []
+    models_to_query: list[ModelConfig] = []
 
     for model_config in council_models:
-        model_name = model_config.get("name", "unknown")
-        model_id = model_config.get("model_id", model_config.get("bot_name", ""))
+        model_name = model_config.name
+        model_id = get_model_identifier(model_config)
         if ctx.cache is not None:
             try:
                 hit = await ctx.cache.aget(user_query, model_name, model_id, model_config)
@@ -420,8 +435,8 @@ async def stage1_collect_responses(
     # Store new responses in cache
     if ctx.cache is not None:
         for model_config in models_to_query:
-            model_name = model_config.get("name", "unknown")
-            model_id = model_config.get("model_id", model_config.get("bot_name", ""))
+            model_name = model_config.name
+            model_id = get_model_identifier(model_config)
             response = responses.get(model_name)
             if response is not None:
                 try:
@@ -443,7 +458,7 @@ async def stage1_collect_responses(
     # Format results in original config order (not completion order)
     stage1_results: list[Stage1Result] = []
     for model_config in council_models:
-        model_name = model_config.get("name", "unknown")
+        model_name = model_config.name
         response = all_responses.get(model_name)
         if response is not None:
             content = response.get("content", "")
@@ -498,7 +513,7 @@ def build_ranking_prompt(
 
 
 async def _get_ranking(
-    model_config: dict[str, Any],
+    model_config: ModelConfig,
     messages: list[dict[str, str]],
     ranker_name: str,
     num_responses: int,
@@ -526,7 +541,7 @@ async def _get_ranking(
 async def stage2_collect_rankings(
     user_query: str,
     stage1_results: list[Stage1Result],
-    council_models: list[dict[str, Any]],
+    council_models: list[ModelConfig],
     ctx: CouncilContext,
     stage2_max_retries: int | None = None,
 ) -> tuple[list[Stage2Result], dict[str, dict[str, str]], dict[str, dict[str, Any] | None]]:
@@ -547,6 +562,7 @@ async def stage2_collect_rankings(
         Tuple of (stage2_results, per_ranker_label_mappings, token_usages)
         where per_ranker_label_mappings is {ranker_name: {label: model_name}}
     """
+    council_models = [coerce_model_config(c) for c in council_models]
     if stage2_max_retries is None:
         stage2_max_retries = ctx.stage2_max_retries
 
@@ -555,7 +571,7 @@ async def stage2_collect_rankings(
     progress = ctx.progress
 
     if progress:
-        model_names = [m.get("name", "unknown") for m in council_models]
+        model_names = [m.name for m in council_models]
         await progress.start_stage(2, f"Peer ranking ({len(stage1_results)} responses)", model_names)
 
     # System message for injection hardening
@@ -576,7 +592,7 @@ async def stage2_collect_rankings(
     ranking_task_names: list[str] = []  # Parallel list tracking ranker name per task
 
     for ranker_model in council_models:
-        ranker_name = ranker_model.get("name", "unknown")
+        ranker_name = ranker_model.name
 
         # Exclude self from ranking (self-ranking exclusion)
         filtered_indices = []
@@ -595,7 +611,7 @@ async def stage2_collect_rankings(
         rng.shuffle(response_order)
 
         # Create labels for this ranker's view
-        labels = [chr(65 + i) for i in range(len(filtered_responses))]  # A, B, C, ...
+        labels = generate_letter_labels(len(filtered_responses))
 
         # Create mapping from label to model name for this ranker
         label_to_model = {}
@@ -634,10 +650,10 @@ async def stage2_collect_rankings(
 
     # Execute all ranking tasks in parallel
     if progress:
-        for model_name in [m.get("name", "unknown") for m in council_models]:
+        for model_name in [m.name for m in council_models]:
             await progress.update_model(model_name, ModelStatus.QUERYING)
 
-    start_times = {m.get("name", "unknown"): time.time() for m in council_models}
+    start_times = {m.name: time.time() for m in council_models}
     ranking_results = await asyncio.gather(*ranking_tasks)
 
     # Format results — iterate ALL results to ensure failed models get status updates
@@ -783,7 +799,7 @@ async def stage3_synthesize_final(
     stage2_results: list[Stage2Result],
     label_to_model: dict[str, str],
     aggregate_rankings: list[AggregateRanking],
-    chairman_config: dict[str, Any],
+    chairman_config: ModelConfig,
     ctx: CouncilContext,
     stream: bool = False,
     on_chunk: Callable[[str], Awaitable[None]] | None = None,
@@ -798,7 +814,7 @@ async def stage3_synthesize_final(
         stage2_results: List of Stage2Result objects
         label_to_model: Label to model mapping
         aggregate_rankings: List of AggregateRanking objects
-        chairman_config: Chairman model config
+        chairman_config: Typed ModelConfig for the chairman model
         ctx: CouncilContext providing providers, circuit breakers, semaphore, progress
         stream: If True, use streaming for the chairman query.
         on_chunk: Optional async callback invoked for each streamed text chunk.
@@ -806,8 +822,9 @@ async def stage3_synthesize_final(
     Returns:
         Tuple of (result, token usage dict or None)
     """
+    chairman_config = coerce_model_config(chairman_config)
     progress = ctx.progress
-    chairman_name = chairman_config.get("name", "Chairman")
+    chairman_name = chairman_config.name
 
     if progress:
         await progress.start_stage(3, f"Chairman ({chairman_name}) synthesizing", [chairman_name])
@@ -815,7 +832,7 @@ async def stage3_synthesize_final(
 
     # Build responses tuples and labels for prompt construction, sanitizing outputs
     response_tuples = [(result.model, sanitize_model_output(result.response)) for result in stage1_results]
-    labels = [f"Response {chr(65 + i)}" for i in range(len(stage1_results))]
+    labels = generate_response_labels(len(stage1_results))
 
     # Build the synthesis prompt
     chairman_prompt = build_synthesis_prompt(

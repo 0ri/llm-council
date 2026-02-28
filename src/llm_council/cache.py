@@ -14,7 +14,10 @@ import logging
 import sqlite3
 import threading
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from pydantic import BaseModel
 
 logger = logging.getLogger("llm-council")
 
@@ -29,26 +32,38 @@ _OUTPUT_AFFECTING_PARAMS = frozenset({
     "max_tokens",
     "budget_tokens",
     "web_search",
+    "system_message",
 })
+
+
+def _to_dict(model_config: dict[str, Any] | BaseModel | None) -> dict[str, Any] | None:
+    """Convert a Pydantic model to a dict if needed, or return None."""
+    if model_config is None:
+        return None
+    if isinstance(model_config, dict):
+        return model_config
+    return model_config.model_dump()
 
 
 def _cache_key(
     question: str,
     model_name: str,
     model_id: str,
-    model_config: dict[str, Any] | None = None,
+    model_config: dict[str, Any] | BaseModel | None = None,
 ) -> str:
     """Compute a deterministic cache key from question + model identity + params.
 
     When *model_config* is provided, output-affecting parameters (e.g.
     ``temperature``, ``reasoning_effort``) are included in the hash so that
-    config changes invalidate stale cache entries.
+    config changes invalidate stale cache entries. Accepts both dict and
+    Pydantic ModelConfig objects.
     """
     raw = f"{question}\x00{model_name}\x00{model_id}"
-    if model_config:
+    config_dict = _to_dict(model_config)
+    if config_dict:
         params = {
             k: v
-            for k, v in model_config.items()
+            for k, v in config_dict.items()
             if k in _OUTPUT_AFFECTING_PARAMS and v is not None
         }
         if params:

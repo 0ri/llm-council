@@ -12,6 +12,8 @@ import logging
 import re
 import secrets
 
+from .models import generate_response_labels
+
 logger = logging.getLogger("llm-council")
 
 
@@ -49,7 +51,7 @@ def format_anonymized_responses(
         Formatted string with all responses wrapped in randomized XML delimiters
     """
     if labels is None:
-        labels = [f"Response {chr(65 + i)}" for i in range(len(responses))]
+        labels = generate_response_labels(len(responses))
     if nonce is None:
         nonce = secrets.token_hex(8)
 
@@ -60,7 +62,7 @@ def format_anonymized_responses(
     return "\n\n".join(parts)
 
 
-def sanitize_user_input(text: str, max_length: int = 200000) -> str:
+def sanitize_user_input(text: str, max_length: int = 100_000) -> str:
     """Sanitize user input before embedding it in LLM prompts.
 
     Strips control characters (preserving newlines, tabs, and carriage

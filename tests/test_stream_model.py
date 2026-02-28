@@ -133,8 +133,9 @@ class TestStreamModelFallback:
 
         text, _usage = await stream_model(MODEL_CONFIG, MESSAGES, ctx, on_chunk=on_chunk)
 
-        # Chunks before error were delivered to callback
-        assert received == ["hello ", "world"]
+        # Chunks before error were delivered to callback, plus the interruption marker
+        assert received[:2] == ["hello ", "world"]
+        assert received[2] == "\n\n[Streaming interrupted, regenerating...]\n\n"
         # But the returned text is from the fallback
         assert text == "fallback response"
 

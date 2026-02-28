@@ -7,6 +7,7 @@ when configured token or cost limits are breached.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Any
@@ -55,6 +56,7 @@ class BudgetGuard:
     total_output_tokens: int = field(default=0, init=False)
     total_cost_usd: float = field(default=0.0, init=False)
     queries: list[dict[str, Any]] = field(default_factory=list, init=False)
+    _lock: asyncio.Lock | None = field(default=None, init=False, repr=False)
 
     def reserve(
         self,
@@ -288,6 +290,48 @@ class BudgetGuard:
         lines.append(f"Queries: {len(self.queries)}")
 
         return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Async wrappers with concurrency-safe locking
+    # ------------------------------------------------------------------
+
+    def _get_lock(self) -> asyncio.Lock:
+        """Return the async lock, creating it lazily."""
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
+
+    async def areserve(
+        self,
+        estimated_input_tokens: int,
+        estimated_output_tokens: int,
+        model_name: str,
+    ) -> None:
+        """Async version of ``reserve()`` protected by an asyncio.Lock."""
+        async with self._get_lock():
+            self.reserve(estimated_input_tokens, estimated_output_tokens, model_name)
+
+    async def acommit(
+        self,
+        input_tokens: int,
+        output_tokens: int,
+        model_name: str,
+        reserved_input: int = 0,
+        reserved_output: int = 0,
+    ) -> None:
+        """Async version of ``commit()`` protected by an asyncio.Lock."""
+        async with self._get_lock():
+            self.commit(input_tokens, output_tokens, model_name, reserved_input, reserved_output)
+
+    async def arelease(
+        self,
+        estimated_input_tokens: int,
+        estimated_output_tokens: int,
+        model_name: str,
+    ) -> None:
+        """Async version of ``release()`` protected by an asyncio.Lock."""
+        async with self._get_lock():
+            self.release(estimated_input_tokens, estimated_output_tokens, model_name)
 
 
 def create_budget_guard(config: dict[str, Any]) -> BudgetGuard | None:

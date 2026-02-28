@@ -15,7 +15,10 @@ from typing import TYPE_CHECKING
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 if TYPE_CHECKING:
+    from ..models import ModelConfig
     from . import ProviderRequest, StreamResult
+
+from ..models import coerce_model_config
 
 logger = logging.getLogger("llm-council")
 
@@ -65,7 +68,7 @@ class PoeProvider:
     async def query(
         self,
         prompt: str,
-        model_config: dict,
+        model_config: ModelConfig,
         timeout: int,
         request: ProviderRequest | None = None,
     ) -> tuple[str, None]:
@@ -76,8 +79,9 @@ class PoeProvider:
         """
         from . import MAX_RETRIES
 
-        # Extract model-specific parameters
-        bot_name = model_config["bot_name"]
+        model_config = coerce_model_config(model_config)
+        # Extract model-specific parameters (PoeModelConfig attributes)
+        bot_name = model_config.bot_name
 
         # Use typed request if provided, fall back to legacy model_config keys
         if request is not None:
@@ -85,12 +89,12 @@ class PoeProvider:
             messages = request.messages
             system_message = request.system_message
         else:
-            suppress_flags = model_config.get("_skip_flags", False)
-            messages = model_config.get("_messages", [{"role": "user", "content": prompt}])
-            system_message = model_config.get("_system_message")
+            suppress_flags = False
+            messages = [{"role": "user", "content": prompt}]
+            system_message = None
 
-        web_search = False if suppress_flags else model_config.get("web_search", False)
-        reasoning_effort = None if suppress_flags else model_config.get("reasoning_effort")
+        web_search = False if suppress_flags else getattr(model_config, "web_search", False)
+        reasoning_effort = None if suppress_flags else getattr(model_config, "reasoning_effort", None)
 
         import fastapi_poe as fp
         from fastapi_poe import ProtocolMessage
@@ -158,7 +162,7 @@ class PoeProvider:
     def astream(
         self,
         prompt: str,
-        model_config: dict,
+        model_config: ModelConfig,
         timeout: int,
         request: ProviderRequest | None = None,
     ) -> StreamResult:
@@ -170,7 +174,8 @@ class PoeProvider:
         """
         from . import StreamResult
 
-        bot_name = model_config["bot_name"]
+        model_config = coerce_model_config(model_config)
+        bot_name = model_config.bot_name
 
         # Use typed request if provided, fall back to legacy model_config keys
         if request is not None:
@@ -178,12 +183,12 @@ class PoeProvider:
             messages = request.messages
             system_message = request.system_message
         else:
-            suppress_flags = model_config.get("_skip_flags", False)
-            messages = model_config.get("_messages", [{"role": "user", "content": prompt}])
-            system_message = model_config.get("_system_message")
+            suppress_flags = False
+            messages = [{"role": "user", "content": prompt}]
+            system_message = None
 
-        web_search = False if suppress_flags else model_config.get("web_search", False)
-        reasoning_effort = None if suppress_flags else model_config.get("reasoning_effort")
+        web_search = False if suppress_flags else getattr(model_config, "web_search", False)
+        reasoning_effort = None if suppress_flags else getattr(model_config, "reasoning_effort", None)
 
         import fastapi_poe as fp
         from fastapi_poe import ProtocolMessage

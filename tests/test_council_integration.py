@@ -44,7 +44,7 @@ class TestRunCouncilIntegration:
         call_count = {"stage": 1}
 
         async def mock_query(prompt, model_config, timeout, **kwargs):
-            name = model_config.get("name", "unknown")
+            name = getattr(model_config, "name", "unknown")
             if call_count["stage"] <= 3:
                 call_count["stage"] += 1
                 return mock_responses.get(name, "default response"), None
@@ -76,7 +76,7 @@ class TestRunCouncilIntegration:
 
         async def mock_query(prompt, model_config, timeout, **kwargs):
             call_count["n"] += 1
-            name = model_config.get("name", "unknown")
+            name = getattr(model_config, "name", "unknown")
             if name == "Model-B":
                 raise Exception("Model B is down")
             if call_count["n"] <= 6:

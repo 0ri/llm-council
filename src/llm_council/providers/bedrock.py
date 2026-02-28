@@ -18,7 +18,10 @@ from botocore.exceptions import ClientError
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 if TYPE_CHECKING:
+    from ..models import ModelConfig
     from . import ProviderRequest, StreamResult, UsageTrackingStream
+
+from ..models import coerce_model_config
 
 logger = logging.getLogger("llm-council")
 
@@ -82,7 +85,7 @@ class BedrockProvider:
     async def query(
         self,
         prompt: str,
-        model_config: dict,
+        model_config: ModelConfig,
         timeout: int,
         request: ProviderRequest | None = None,
     ) -> tuple[str, dict | None]:
@@ -93,17 +96,18 @@ class BedrockProvider:
         """
         from . import DEFAULT_MAX_TOKENS, MAX_RETRIES
 
-        # Extract model-specific parameters
-        model_id = model_config["model_id"]
-        budget_tokens = model_config.get("budget_tokens")
+        model_config = coerce_model_config(model_config)
+        # Extract model-specific parameters (BedrockModelConfig attributes)
+        model_id = model_config.model_id
+        budget_tokens = getattr(model_config, "budget_tokens", None)
 
-        # Use typed request if provided, fall back to legacy model_config keys
+        # Use typed request if provided, fall back to minimal defaults
         if request is not None:
             messages = request.messages
             system_message = request.system_message
         else:
-            messages = model_config.get("_messages", [{"role": "user", "content": prompt}])
-            system_message = model_config.get("_system_message")
+            messages = [{"role": "user", "content": prompt}]
+            system_message = None
 
         @retry(
             stop=stop_after_attempt(MAX_RETRIES),
@@ -164,13 +168,13 @@ class BedrockProvider:
             )
             return result
         except asyncio.TimeoutError:
-            logger.warning(f"Bedrock timeout for model {model_config.get('name', 'unknown')}")
+            logger.warning(f"Bedrock timeout for model {model_config.name}")
             raise
 
     def astream(
         self,
         prompt: str,
-        model_config: dict,
+        model_config: ModelConfig,
         timeout: int,
         request: ProviderRequest | None = None,
     ) -> StreamResult:
@@ -181,16 +185,17 @@ class BedrockProvider:
         """
         from . import DEFAULT_MAX_TOKENS, MAX_RETRIES, StreamResult, UsageTrackingStream
 
-        model_id = model_config["model_id"]
-        budget_tokens = model_config.get("budget_tokens")
+        model_config = coerce_model_config(model_config)
+        model_id = model_config.model_id
+        budget_tokens = getattr(model_config, "budget_tokens", None)
 
-        # Use typed request if provided, fall back to legacy model_config keys
+        # Use typed request if provided, fall back to minimal defaults
         if request is not None:
             messages = request.messages
             system_message = request.system_message
         else:
-            messages = model_config.get("_messages", [{"role": "user", "content": prompt}])
-            system_message = model_config.get("_system_message")
+            messages = [{"role": "user", "content": prompt}]
+            system_message = None
 
         @retry(
             stop=stop_after_attempt(MAX_RETRIES),

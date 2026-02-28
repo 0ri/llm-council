@@ -11,7 +11,21 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+def generate_response_labels(count: int) -> list[str]:
+    """Generate anonymous response labels: 'Response A', 'Response B', etc."""
+    if count > 26:
+        raise ValueError(f"Max 26 labels supported, got {count}")
+    return [f"Response {chr(65 + i)}" for i in range(count)]
+
+
+def generate_letter_labels(count: int) -> list[str]:
+    """Generate single-letter labels: 'A', 'B', 'C', etc."""
+    if count > 26:
+        raise ValueError(f"Max 26 labels supported, got {count}")
+    return [chr(65 + i) for i in range(count)]
 
 
 class BedrockModelConfig(BaseModel):
@@ -53,6 +67,57 @@ class OpenRouterModelConfig(BaseModel):
 ModelConfig = BedrockModelConfig | PoeModelConfig | OpenRouterModelConfig
 
 
+def get_model_identifier(config: ModelConfig) -> str:
+    """Extract the provider-specific model identifier from any ModelConfig type."""
+    return getattr(config, "model_id", getattr(config, "bot_name", config.name))
+
+
+_PROVIDER_TO_CONFIG: dict[str, type[BaseModel]] = {
+    "bedrock": BedrockModelConfig,
+    "poe": PoeModelConfig,
+    "openrouter": OpenRouterModelConfig,
+}
+
+
+def coerce_model_config(config: ModelConfig | dict) -> ModelConfig:
+    """Convert a dict to the appropriate ModelConfig subtype if needed.
+
+    Passes through existing ModelConfig instances unchanged. Accepts
+    plain dicts (as used by tests and JSON config) and returns the
+    correct discriminated-union member based on the ``provider`` field.
+    When ``provider`` is absent, infers it from available keys.
+    """
+    if isinstance(config, (BedrockModelConfig, PoeModelConfig, OpenRouterModelConfig)):
+        return config
+    if isinstance(config, dict):
+        clean = {k: v for k, v in config.items() if not k.startswith("_")}
+        provider = clean.get("provider")
+        # Infer provider from available keys when not explicitly set
+        if provider is None:
+            if "bot_name" in clean:
+                provider = "poe"
+            elif "model_id" in clean:
+                provider = "bedrock"
+            else:
+                provider = "poe"
+            clean["provider"] = provider
+        # Ensure name field exists (some test dicts omit it)
+        if "name" not in clean:
+            clean["name"] = clean.get("model_id", clean.get("bot_name", "unknown"))
+        # Ensure required provider-specific identifiers exist
+        if provider == "bedrock" and "model_id" not in clean:
+            clean["model_id"] = clean["name"]
+        elif provider == "poe" and "bot_name" not in clean:
+            clean["bot_name"] = clean["name"]
+        elif provider == "openrouter" and "model_id" not in clean:
+            clean["model_id"] = clean["name"]
+        cls = _PROVIDER_TO_CONFIG.get(provider)
+        if cls is None:
+            raise ValueError(f"Unknown provider: {provider}")
+        return cls(**clean)
+    return config
+
+
 class BudgetConfig(BaseModel):
     """Budget controls for limiting token usage and cost."""
 
@@ -82,8 +147,9 @@ class CouncilConfig(BaseModel):
     cache_ttl: int = 86400
     soft_timeout: float = 300
     min_responses: int | None = None
-    stage2_retries: int = 1
+    stage2_retries: int = Field(default=1, ge=0, le=5)
     min_valid_ballots: int | None = None
+    strict_ballots: bool = False
 
     @model_validator(mode="after")
     def _validate_council_models(self) -> CouncilConfig:
@@ -105,7 +171,7 @@ class Stage1Result(BaseModel):
     """Result from a single model in Stage 1."""
 
     model: str
-    response: str
+    response: str = Field(min_length=1)
 
 
 class Stage2Result(BaseModel):
@@ -128,9 +194,11 @@ class AggregateRanking(BaseModel):
     borda_score: float | None = None
 
     @property
-    def confidence_interval(self) -> tuple[float, float]:
-        """Get confidence interval as a tuple."""
-        return (self.ci_lower or 0, self.ci_upper or 0)
+    def confidence_interval(self) -> tuple[float, float] | None:
+        """Get confidence interval as a tuple, or None if not computed."""
+        if self.ci_lower is None or self.ci_upper is None:
+            return None
+        return (self.ci_lower, self.ci_upper)
 
 
 class Stage3Result(BaseModel):

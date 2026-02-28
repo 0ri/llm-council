@@ -361,7 +361,7 @@ async def test_shutdown_after_close():
 
 @pytest.mark.asyncio
 async def test_shutdown_delegates_to_close():
-    """Mock close(), call shutdown(), verify close() was called.
+    """Mock _close_resources(), call shutdown(), verify it was called.
 
     Validates: Requirements 4.2
     """
@@ -371,7 +371,7 @@ async def test_shutdown_delegates_to_close():
     ctx = CouncilContext()
     ctx.progress = progress
 
-    with patch.object(ctx, "close", new_callable=AsyncMock) as mock_close:
+    with patch.object(ctx, "_close_resources", new_callable=AsyncMock) as mock_close:
         await ctx.shutdown()
         mock_close.assert_awaited_once()
 
@@ -460,7 +460,7 @@ async def test_finally_calls_shutdown_on_success():
     stage3_result.model = "test-model"
     stage3_result.response = "final answer"
 
-    config = {"council_models": [], "chairman": {}}
+    config = {"council_models": [{"name": "test-model", "provider": "poe", "bot_name": "test"}], "chairman": {"name": "test-model", "provider": "poe", "bot_name": "test"}}
 
     with (
         patch("llm_council.council.validate_config", return_value=[]),
@@ -506,7 +506,7 @@ async def test_finally_calls_shutdown_on_budget_error():
     ctx.cache = None
     ctx.cost_tracker = Mock()
 
-    config = {"council_models": [], "chairman": {}}
+    config = {"council_models": [{"name": "test-model", "provider": "poe", "bot_name": "test"}], "chairman": {"name": "test-model", "provider": "poe", "bot_name": "test"}}
 
     with (
         patch("llm_council.council.validate_config", return_value=[]),
@@ -547,7 +547,7 @@ async def test_finally_calls_shutdown_on_unexpected_error():
     ctx.cache = None
     ctx.cost_tracker = Mock()
 
-    config = {"council_models": [], "chairman": {}}
+    config = {"council_models": [{"name": "test-model", "provider": "poe", "bot_name": "test"}], "chairman": {"name": "test-model", "provider": "poe", "bot_name": "test"}}
 
     with (
         patch("llm_council.council.validate_config", return_value=[]),

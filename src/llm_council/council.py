@@ -25,7 +25,7 @@ from .context import CouncilContext
 from .cost import CouncilCostTracker
 from .formatting import format_output, format_stage1_output, format_stage2_output
 from .manifest import RunManifest
-from .models import CouncilConfig
+from .models import CouncilConfig, generate_response_labels
 from .progress import ProgressManager
 from .security import sanitize_user_input
 from .stages import stage1_collect_responses, stage2_collect_rankings, stage3_synthesize_final
@@ -211,8 +211,10 @@ async def run_council(
         run_logger = RunLogger(log_dir, run_id)
         run_logger.log_config(question, config)
 
-    council_models = config.get("council_models", [])
-    chairman_config = config.get("chairman", {})
+    # Extract typed ModelConfig objects from validated config
+    validated = CouncilConfig(**config)
+    council_models = list(validated.council_models)
+    chairman_config_typed = validated.chairman
 
     # Create the per-run context
     if context_factory:
@@ -301,6 +303,14 @@ async def run_council(
                     f"Low ballot confidence: {valid_ballots}/{total_ballots} valid ballots "
                     f"(minimum: {ballot_threshold})"
                 )
+                if config.get("strict_ballots", False):
+                    total_elapsed = time.time() - start_time
+                    await ctx.progress.complete_council(total_elapsed)
+                    return (
+                        f"Error: Insufficient valid ballots ({valid_ballots}/{total_ballots}) "
+                        f"to meet threshold ({ballot_threshold}). "
+                        f"Set strict_ballots=false or lower min_valid_ballots to proceed."
+                    )
 
             if run_logger:
                 run_logger.log_aggregation(aggregate_rankings, valid_ballots, total_ballots)
@@ -317,8 +327,9 @@ async def run_council(
             if per_ranker_label_mappings:
                 # Use the mapping from any ranker (they all map to the same models, just different orders)
                 # We need to create a canonical mapping for the chairman
-                for i, result in enumerate(stage1_results):
-                    label_to_model[f"Response {chr(65 + i)}"] = result.model
+                labels = generate_response_labels(len(stage1_results))
+                for label, result in zip(labels, stage1_results, strict=True):
+                    label_to_model[label] = result.model
 
             logger.info("Stage 3: Chairman synthesizing final answer...")
             stage3_result, stage3_token_usage = await stage3_synthesize_final(
@@ -327,7 +338,7 @@ async def run_council(
                 stage2_results,
                 label_to_model,
                 aggregate_rankings,
-                chairman_config,
+                chairman_config_typed,
                 ctx,
                 stream=stream,
                 on_chunk=on_chunk,

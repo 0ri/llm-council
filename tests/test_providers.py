@@ -12,6 +12,7 @@ from botocore.exceptions import ClientError
 from llm_council.providers import (
     BedrockProvider,
     PoeProvider,
+    ProviderRequest,
 )
 
 # Check if fastapi_poe is available
@@ -367,17 +368,16 @@ class TestPoeProvider:
 
     @pytest.mark.asyncio
     async def test_system_message_handling(self):
-        """Test that system messages are properly included."""
+        """Test that system messages are properly included via ProviderRequest."""
         with patch("fastapi_poe.get_bot_response") as mock_get_bot:
             mock_get_bot.return_value = self._mock_empty_stream()
 
             provider = PoeProvider(api_key="test-key")
-            config = {
-                "bot_name": "TestBot",
-                "_system_message": "You are a helpful assistant",
-                "_messages": [{"role": "user", "content": "Hello"}],
-            }
-            await provider.query("Ignored", config, timeout=30)
+            request = ProviderRequest(
+                messages=[{"role": "user", "content": "Hello"}],
+                system_message="You are a helpful assistant",
+            )
+            await provider.query("Ignored", {"bot_name": "TestBot"}, timeout=30, request=request)
 
             call_args = mock_get_bot.call_args
             messages = call_args[1]["messages"]
@@ -392,15 +392,14 @@ class TestPoeProvider:
             mock_get_bot.return_value = self._mock_empty_stream()
 
             provider = PoeProvider(api_key="test-key")
-            config = {
-                "bot_name": "TestBot",
-                "_messages": [
+            request = ProviderRequest(
+                messages=[
                     {"role": "user", "content": "Hello"},
                     {"role": "assistant", "content": "Hi there"},
                     {"role": "user", "content": "How are you?"},
                 ],
-            }
-            await provider.query("", config, timeout=30)
+            )
+            await provider.query("", {"bot_name": "TestBot"}, timeout=30, request=request)
 
             call_args = mock_get_bot.call_args
             messages = call_args[1]["messages"]

@@ -13,6 +13,9 @@ import dataclasses
 import time as _time
 import typing
 
+if typing.TYPE_CHECKING:
+    from ..models import ModelConfig
+
 from .bedrock import BedrockProvider
 from .openrouter import OpenRouterProvider
 from .poe import PoeProvider
@@ -51,8 +54,9 @@ class Provider(typing.Protocol):
     Every concrete provider (Bedrock, OpenRouter, Poe) satisfies this
     protocol by implementing the ``query`` method. The council pipeline
     dispatches Stage 1 and Stage 2 calls through this interface, passing
-    a prompt string, provider-specific model configuration, a timeout,
-    and a typed ``ProviderRequest`` containing messages and metadata.
+    a prompt string, a typed ``ModelConfig`` with provider-specific
+    parameters, a timeout, and a typed ``ProviderRequest`` containing
+    messages and metadata.
 
     Implementations should return the model's text response along with
     optional usage metadata (token counts, cost estimates). If the
@@ -63,7 +67,7 @@ class Provider(typing.Protocol):
     async def query(
         self,
         prompt: str,
-        model_config: dict,
+        model_config: ModelConfig,
         timeout: int,
         request: ProviderRequest | None = None,
     ) -> tuple[str, dict | None]:
@@ -72,11 +76,12 @@ class Provider(typing.Protocol):
         Args:
             prompt: The full prompt text to send to the model, including
                 any system instructions and user content.
-            model_config: Provider-specific configuration dictionary.
-                Bedrock configs include ``model_id`` and ``budget_tokens``;
-                Poe configs include ``bot_name``, ``web_search``, and
-                ``reasoning_effort``; OpenRouter configs include
-                ``model_id``, ``temperature``, and ``max_tokens``.
+            model_config: Typed ``ModelConfig`` (discriminated union) with
+                provider-specific attributes. Bedrock configs have
+                ``model_id`` and ``budget_tokens``; Poe configs have
+                ``bot_name``, ``web_search``, and ``reasoning_effort``;
+                OpenRouter configs have ``model_id``, ``temperature``,
+                and ``max_tokens``.
             timeout: Maximum number of seconds to wait for a response
                 before raising a timeout error.
             request: Optional typed request containing messages,
@@ -164,7 +169,7 @@ class StreamingProvider(Provider, typing.Protocol):
     def astream(
         self,
         prompt: str,
-        model_config: dict,
+        model_config: ModelConfig,
         timeout: int,
         request: ProviderRequest | None = None,
     ) -> StreamResult:
@@ -173,9 +178,8 @@ class StreamingProvider(Provider, typing.Protocol):
         Args:
             prompt: The full prompt text to send to the model, including
                 any system instructions and user content.
-            model_config: Provider-specific configuration dictionary.
-                See ``Provider.query`` for the expected keys per
-                provider type.
+            model_config: Typed ``ModelConfig`` with provider-specific
+                attributes. See ``Provider.query`` for details.
             timeout: Maximum number of seconds to wait for the stream
                 to begin producing chunks before raising a timeout
                 error.
@@ -202,7 +206,7 @@ class StreamingProvider(Provider, typing.Protocol):
 def fallback_astream(
     provider: Provider,
     prompt: str,
-    model_config: dict,
+    model_config: ModelConfig,
     timeout: int,
     request: ProviderRequest | None = None,
 ) -> StreamResult:

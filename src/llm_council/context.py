@@ -8,7 +8,9 @@ concurrent council runs do not share mutable state.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
+import warnings
 from dataclasses import dataclass, field
 
 from .budget import BudgetGuard
@@ -136,14 +138,28 @@ class CouncilContext:
 
         return self.providers[provider_name]
 
-    async def close(self) -> None:
-        """Close all providers and the cache."""
+    async def _close_resources(self) -> None:
+        """Close all providers and the cache (internal helper)."""
         for provider in self.providers.values():
-            close = getattr(provider, "close", None)
-            if close is not None and asyncio.iscoroutinefunction(close):
-                await close()
+            close_fn = getattr(provider, "close", None)
+            if close_fn is not None and inspect.iscoroutinefunction(close_fn):
+                await close_fn()
         if self.cache is not None:
             self.cache.close()
+
+    async def close(self) -> None:
+        """Close all providers and the cache.
+
+        .. deprecated::
+            Use :meth:`shutdown` instead, which also closes the
+            progress manager and is idempotent.
+        """
+        warnings.warn(
+            "CouncilContext.close() is deprecated, use shutdown() instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        await self._close_resources()
 
     async def shutdown(self) -> None:
         """Unified shutdown: close providers, cache, and progress manager.
@@ -156,9 +172,9 @@ class CouncilContext:
         self._shutdown_called = True
 
         try:
-            await self.close()
+            await self._close_resources()
         except Exception:
-            logger.exception("Error during close()")
+            logger.exception("Error during _close_resources()")
 
         try:
             await self.progress.shutdown()

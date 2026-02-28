@@ -53,7 +53,7 @@ class _MockStreamingProvider:
 
     async def query(self, prompt: str, model_config: dict, timeout: int, **kwargs) -> tuple[str, dict | None]:
         self._call_count += 1
-        name = model_config.get("name", "unknown")
+        name = getattr(model_config, "name", "unknown")
         if self._call_count <= 3:
             return self._model_responses.get(name, "default response"), None
         elif self._call_count <= 6:
@@ -99,7 +99,7 @@ class _MockFailingStreamProvider:
 
     async def query(self, prompt: str, model_config: dict, timeout: int, **kwargs) -> tuple[str, dict | None]:
         self._call_count += 1
-        name = model_config.get("name", "unknown")
+        name = getattr(model_config, "name", "unknown")
         if self._call_count <= 3:
             return self._model_responses.get(name, "default response"), None
         elif self._call_count <= 6:

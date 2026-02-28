@@ -239,7 +239,7 @@ class TestAggressiveTimeout:
 
         # Mock query_model to return quickly for first model, slowly for others
         async def mock_query_model(config, messages, ctx, system_message):
-            name = config["name"]
+            name = config.name
             if name == "Fast-Model":
                 await asyncio.sleep(0.1)
                 return {"content": "fast response"}, None
@@ -276,7 +276,7 @@ class TestAggressiveTimeout:
 
         async def mock_query_model(config, messages, ctx, system_message):
             await asyncio.sleep(0.1)
-            return {"content": f"response from {config['name']}"}, None
+            return {"content": f"response from {config.name}"}, None
 
         with patch("llm_council.stages.query_model", side_effect=mock_query_model):
             ctx = _make_ctx()
@@ -299,7 +299,7 @@ class TestAggressiveTimeout:
 
         # Mock only 3 models to respond quickly
         async def mock_query_model(config, messages, ctx, system_message):
-            name = config["name"]
+            name = config.name
             if name != "Model-3":
                 await asyncio.sleep(0.1)
                 return {"content": f"response from {name}"}, None
