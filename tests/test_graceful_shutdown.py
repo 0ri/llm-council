@@ -460,7 +460,10 @@ async def test_finally_calls_shutdown_on_success():
     stage3_result.model = "test-model"
     stage3_result.response = "final answer"
 
-    config = {"council_models": [{"name": "test-model", "provider": "poe", "bot_name": "test"}], "chairman": {"name": "test-model", "provider": "poe", "bot_name": "test"}}
+    config = {
+        "council_models": [{"name": "test-model", "provider": "poe", "bot_name": "test"}],
+        "chairman": {"name": "test-model", "provider": "poe", "bot_name": "test"},
+    }
 
     with (
         patch("llm_council.council.validate_config", return_value=[]),
@@ -506,7 +509,10 @@ async def test_finally_calls_shutdown_on_budget_error():
     ctx.cache = None
     ctx.cost_tracker = Mock()
 
-    config = {"council_models": [{"name": "test-model", "provider": "poe", "bot_name": "test"}], "chairman": {"name": "test-model", "provider": "poe", "bot_name": "test"}}
+    config = {
+        "council_models": [{"name": "test-model", "provider": "poe", "bot_name": "test"}],
+        "chairman": {"name": "test-model", "provider": "poe", "bot_name": "test"},
+    }
 
     with (
         patch("llm_council.council.validate_config", return_value=[]),
@@ -547,7 +553,10 @@ async def test_finally_calls_shutdown_on_unexpected_error():
     ctx.cache = None
     ctx.cost_tracker = Mock()
 
-    config = {"council_models": [{"name": "test-model", "provider": "poe", "bot_name": "test"}], "chairman": {"name": "test-model", "provider": "poe", "bot_name": "test"}}
+    config = {
+        "council_models": [{"name": "test-model", "provider": "poe", "bot_name": "test"}],
+        "chairman": {"name": "test-model", "provider": "poe", "bot_name": "test"},
+    }
 
     with (
         patch("llm_council.council.validate_config", return_value=[]),

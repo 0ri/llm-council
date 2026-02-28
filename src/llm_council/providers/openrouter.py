@@ -19,7 +19,7 @@ from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponen
 
 if TYPE_CHECKING:
     from ..models import ModelConfig
-    from . import ProviderRequest, StreamResult, UsageTrackingStream
+    from . import ProviderRequest, StreamResult
 
 from ..models import coerce_model_config
 
