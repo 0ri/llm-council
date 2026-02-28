@@ -30,6 +30,7 @@ class ModelStatus(Enum):
     QUERYING = "querying"
     DONE = "done"
     FAILED = "failed"
+    BUDGET = "budget"
 
 
 @dataclass
@@ -147,6 +148,9 @@ class ProgressManager:
             elif status == ModelStatus.FAILED:
                 t = f" ({elapsed:.1f}s)" if elapsed is not None else ""
                 self._log(f"Stage {sn}/3: \u2717 {model} failed{t}")
+            elif status == ModelStatus.BUDGET:
+                t = f" ({elapsed:.1f}s)" if elapsed is not None else ""
+                self._log(f"Stage {sn}/3: \u2717 {model} budget exceeded{t}")
 
     async def complete_stage(self, summary: str | None = None):
         """Mark the current stage as complete."""
@@ -236,6 +240,10 @@ class ProgressManager:
                 elapsed = stage.model_elapsed.get(model, 0)
                 output.append("\u2717", style="red")
                 output.append(f" {model:<22} failed ({elapsed:.1f}s)\n", style="red")
+            elif status == ModelStatus.BUDGET:
+                elapsed = stage.model_elapsed.get(model, 0)
+                output.append("\u2717", style="yellow")
+                output.append(f" {model:<22} budget exceeded ({elapsed:.1f}s)\n", style="yellow")
             elif status == ModelStatus.QUERYING:
                 start = stage.model_start_times.get(model, stage.start_time)
                 running = time.time() - start

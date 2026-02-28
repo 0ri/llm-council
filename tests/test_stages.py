@@ -454,7 +454,7 @@ class TestBudgetEnforcement:
             result, usage = await query_model(model_config, messages, ctx)
 
             assert result is None
-            assert usage is None
+            assert isinstance(usage, dict) and usage.get("budget_exceeded") is True
             mock_get_provider.assert_not_called()
 
     @pytest.mark.asyncio

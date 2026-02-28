@@ -47,10 +47,29 @@ def is_retryable_openrouter_error(exc: BaseException) -> bool:
 class OpenRouterAPIError(Exception):
     """Error from the OpenRouter API."""
 
-    def __init__(self, status_code: int, message: str):
+    def __init__(self, status_code: int, message: str, headers: dict[str, str] | None = None):
         self.status_code = status_code
         self.message = message
+        self.headers = headers or {}
         super().__init__(f"OpenRouter API error {status_code}: {message}")
+
+
+class _WaitRetryAfterOrExponential(wait_exponential):
+    """Custom tenacity wait that respects Retry-After headers when available.
+
+    Falls back to exponential backoff when no Retry-After header is present.
+    """
+
+    def __call__(self, retry_state):
+        exc = retry_state.outcome.exception() if retry_state.outcome else None
+        if isinstance(exc, OpenRouterAPIError) and exc.headers:
+            retry_after = exc.headers.get("retry-after")
+            if retry_after:
+                try:
+                    return max(0, float(retry_after))
+                except ValueError:
+                    pass
+        return super().__call__(retry_state)
 
 
 class OpenRouterProvider:
@@ -122,7 +141,7 @@ class OpenRouterProvider:
 
         @retry(
             stop=stop_after_attempt(MAX_RETRIES),
-            wait=wait_exponential(multiplier=1, min=2, max=10),
+            wait=_WaitRetryAfterOrExponential(multiplier=1, min=2, max=10),
             retry=retry_if_exception(is_retryable_openrouter_error),
             reraise=True,
         )
@@ -142,7 +161,7 @@ class OpenRouterProvider:
 
             if resp.status_code != 200:
                 error_msg = resp.text[:500]
-                raise OpenRouterAPIError(resp.status_code, error_msg)
+                raise OpenRouterAPIError(resp.status_code, error_msg, dict(resp.headers))
 
             data = resp.json()
 
@@ -192,7 +211,7 @@ class OpenRouterProvider:
         async def _generate():
             @retry(
                 stop=stop_after_attempt(MAX_RETRIES),
-                wait=wait_exponential(multiplier=1, min=2, max=10),
+                wait=_WaitRetryAfterOrExponential(multiplier=1, min=2, max=10),
                 retry=retry_if_exception(is_retryable_openrouter_error),
                 reraise=True,
             )
@@ -222,7 +241,7 @@ class OpenRouterProvider:
                         error_text += chunk
                         if len(error_text) > 500:
                             break
-                    raise OpenRouterAPIError(resp.status_code, error_text[:500])
+                    raise OpenRouterAPIError(resp.status_code, error_text[:500], dict(resp.headers))
 
                 async for line in resp.aiter_lines():
                     if not line.startswith("data: "):

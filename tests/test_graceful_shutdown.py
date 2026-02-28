@@ -431,6 +431,12 @@ async def test_finally_calls_shutdown_on_success():
 
     ctx = Mock(spec=CouncilContext)
     ctx.shutdown = AsyncMock()
+    ctx.__aenter__ = AsyncMock(return_value=ctx)
+
+    async def _mock_aexit(*args):
+        await ctx.shutdown()
+
+    ctx.__aexit__ = _mock_aexit
     ctx.progress = progress
     ctx.budget_guard = None
     ctx.cache = None
@@ -489,6 +495,12 @@ async def test_finally_calls_shutdown_on_budget_error():
 
     ctx = Mock(spec=CouncilContext)
     ctx.shutdown = AsyncMock()
+    ctx.__aenter__ = AsyncMock(return_value=ctx)
+
+    async def _mock_aexit(*args):
+        await ctx.shutdown()
+
+    ctx.__aexit__ = _mock_aexit
     ctx.progress = progress
     ctx.budget_guard = None
     ctx.cache = None
@@ -524,6 +536,12 @@ async def test_finally_calls_shutdown_on_unexpected_error():
 
     ctx = Mock(spec=CouncilContext)
     ctx.shutdown = AsyncMock()
+    ctx.__aenter__ = AsyncMock(return_value=ctx)
+
+    async def _mock_aexit(*args):
+        await ctx.shutdown()
+
+    ctx.__aexit__ = _mock_aexit
     ctx.progress = progress
     ctx.budget_guard = None
     ctx.cache = None

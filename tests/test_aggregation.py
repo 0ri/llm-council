@@ -116,7 +116,7 @@ class TestCalculateAggregateRankings:
             assert ci[0] <= item.average_rank <= ci[1]
 
     def test_borda_scores_in_results(self):
-        """Test that Borda scores are calculated correctly."""
+        """Test that normalized Borda scores are calculated correctly (0-1 scale)."""
         stage2_results = [
             _ballot("M1", ["Response A", "Response B", "Response C"]),
             _ballot("M2", ["Response A", "Response B", "Response C"]),
@@ -127,10 +127,13 @@ class TestCalculateAggregateRankings:
         }
         aggregate, _, _ = calculate_aggregate_rankings(stage2_results, per_ranker)
 
+        # Normalized Borda: position 1 in 3-candidate ballot -> (3-1)/(3-1) = 1.0
         assert aggregate[0].model == "M1"
-        assert aggregate[0].borda_score == 2.0
+        assert aggregate[0].borda_score == 1.0
+        # Position 2 -> (3-2)/(3-1) = 0.5
         assert aggregate[1].model == "M2"
-        assert aggregate[1].borda_score == 1.0
+        assert aggregate[1].borda_score == 0.5
+        # Position 3 -> (3-3)/(3-1) = 0.0
         assert aggregate[2].model == "M3"
         assert aggregate[2].borda_score == 0.0
 
@@ -218,3 +221,98 @@ class TestInvalidBallotExclusion:
         assert valid_count == 0
         assert total_count == 1
         assert rankings == []
+
+
+class TestPhantomLabelDetection:
+    """Item 12: Phantom (unresolvable) labels should invalidate ballots."""
+
+    def test_phantom_label_invalidates_ballot(self):
+        """A ballot with 'Response D' in a 3-model council should be invalidated."""
+        stage2_results = [
+            # Valid ballot: labels A, B match the mapping
+            _ballot("M1", ["Response A", "Response B"]),
+            # Phantom ballot: 'Response D' does not exist in mapping
+            _ballot("M2", ["Response A", "Response D"]),
+            _ballot("M3", ["Response B", "Response A"]),
+        ]
+        per_ranker = {
+            "M1": {"Response A": "M2", "Response B": "M3"},
+            "M2": {"Response A": "M1", "Response B": "M3"},
+            "M3": {"Response A": "M1", "Response B": "M2"},
+        }
+        aggregate, valid, total = calculate_aggregate_rankings(stage2_results, per_ranker)
+
+        # M2's ballot should be invalidated due to phantom "Response D"
+        assert valid == 2
+        assert total == 3
+
+    def test_all_phantom_labels(self):
+        """A ballot where ALL labels are phantom should be invalidated."""
+        stage2_results = [
+            _ballot("M1", ["Response X", "Response Y"]),
+        ]
+        per_ranker = {
+            "M1": {"Response A": "M2", "Response B": "M3"},
+        }
+        aggregate, valid, total = calculate_aggregate_rankings(stage2_results, per_ranker)
+
+        assert valid == 0
+        assert total == 1
+        assert aggregate == []
+
+    def test_no_phantom_labels_all_valid(self):
+        """When no phantom labels exist, all valid ballots should be counted."""
+        stage2_results = [
+            _ballot("M1", ["Response A", "Response B"]),
+            _ballot("M2", ["Response A", "Response B"]),
+        ]
+        per_ranker = {
+            "M1": {"Response A": "M2", "Response B": "M3"},
+            "M2": {"Response A": "M1", "Response B": "M3"},
+        }
+        aggregate, valid, total = calculate_aggregate_rankings(stage2_results, per_ranker)
+
+        assert valid == 2
+        assert total == 2
+
+
+class TestNormalizedBordaWithUnequalBallots:
+    """Item 13: Borda scores should be comparable across different ballot sizes."""
+
+    def test_unequal_ballot_sizes_normalized(self):
+        """Self-exclusion creates unequal ballot sizes; normalized Borda keeps scores fair."""
+        # 3-model council with self-exclusion: each ranker sees 2 candidates
+        # Cyclic ranking: M1 prefers M2, M2 prefers M3, M3 prefers M1
+        stage2_results = [
+            _ballot("M1", ["Response A", "Response B"]),  # M1: ranks M2 first, M3 second
+            _ballot("M2", ["Response A", "Response B"]),  # M2: ranks M3 first, M1 second
+            _ballot("M3", ["Response A", "Response B"]),  # M3: ranks M1 first, M2 second
+        ]
+        per_ranker_mappings = {
+            "M1": {"Response A": "M2", "Response B": "M3"},
+            "M2": {"Response A": "M3", "Response B": "M1"},
+            "M3": {"Response A": "M1", "Response B": "M2"},
+        }
+        aggregate, valid, total = calculate_aggregate_rankings(stage2_results, per_ranker_mappings)
+
+        assert valid == 3
+        assert total == 3
+
+        # Each model is ranked first by one ranker and second by another
+        # Normalized Borda for 2 candidates: pos 1 -> (2-1)/(2-1)=1.0, pos 2 -> 0.0
+        # Each model: avg normalized Borda = (1.0 + 0.0) / 2 = 0.5
+        for item in aggregate:
+            assert item.borda_score == 0.5
+
+    def test_borda_normalized_to_01_scale(self):
+        """Normalized Borda should produce values in [0, 1] range."""
+        stage2_results = [
+            _ballot("M1", ["Response A", "Response B", "Response C"]),
+        ]
+        per_ranker = {
+            "M1": {"Response A": "X", "Response B": "Y", "Response C": "Z"},
+        }
+        aggregate, _, _ = calculate_aggregate_rankings(stage2_results, per_ranker)
+
+        for item in aggregate:
+            assert 0.0 <= item.borda_score <= 1.0

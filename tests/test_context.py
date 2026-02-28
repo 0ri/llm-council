@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from llm_council.context import CouncilContext
+from llm_council.context import PROVIDER_REGISTRY, CouncilContext
 from llm_council.providers import CircuitBreaker
 from llm_council.providers.bedrock import BedrockProvider
 from llm_council.providers.openrouter import OpenRouterProvider
@@ -132,3 +132,66 @@ class TestInstanceIsolation:
         s1 = ctx1.get_semaphore()
         s2 = ctx2.get_semaphore()
         assert s1 is not s2
+
+
+class TestAsyncContextManager:
+    """Item 16: CouncilContext as an async context manager."""
+
+    @pytest.mark.asyncio
+    async def test_aenter_returns_self(self):
+        """__aenter__ should return the context instance."""
+        ctx = CouncilContext()
+        async with ctx as entered:
+            assert entered is ctx
+
+    @pytest.mark.asyncio
+    async def test_aexit_calls_shutdown(self):
+        """__aexit__ should call shutdown()."""
+        ctx = CouncilContext()
+        ctx.shutdown = AsyncMock()
+        async with ctx:
+            pass
+        ctx.shutdown.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_aexit_calls_shutdown_on_exception(self):
+        """__aexit__ should call shutdown() even when an exception occurs."""
+        ctx = CouncilContext()
+        ctx.shutdown = AsyncMock()
+        with pytest.raises(ValueError):
+            async with ctx:
+                raise ValueError("test")
+        ctx.shutdown.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_idempotent_shutdown(self):
+        """Multiple shutdowns should be safe."""
+        ctx = CouncilContext()
+        async with ctx:
+            pass
+        # Second shutdown should be a no-op (idempotent)
+        await ctx.shutdown()
+        assert ctx._shutdown_called
+
+
+class TestProviderRegistry:
+    """Item 21: Provider registry for extensible dispatch."""
+
+    def test_registry_contains_all_providers(self):
+        """Registry should contain bedrock, poe, and openrouter."""
+        assert "bedrock" in PROVIDER_REGISTRY
+        assert "poe" in PROVIDER_REGISTRY
+        assert "openrouter" in PROVIDER_REGISTRY
+
+    def test_registry_maps_to_correct_classes(self):
+        """Registry should map to the correct provider classes."""
+        assert PROVIDER_REGISTRY["bedrock"] is BedrockProvider
+        assert PROVIDER_REGISTRY["poe"] is PoeProvider
+        assert PROVIDER_REGISTRY["openrouter"] is OpenRouterProvider
+
+    def test_get_provider_uses_registry(self):
+        """get_provider should use registry-based dispatch."""
+        with patch("boto3.client"):
+            ctx = CouncilContext()
+            provider = ctx.get_provider("bedrock")
+            assert isinstance(provider, BedrockProvider)

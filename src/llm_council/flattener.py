@@ -352,13 +352,9 @@ def flatten_directory(
     if respect_gitignore:
         patterns = _load_gitignore(root)
         if patterns:
-            try:
-                import pathspec
+            import pathspec
 
-                gitignore_spec = pathspec.PathSpec.from_lines("gitwildmatch", patterns)
-            except ImportError:
-                # pathspec not installed — skip .gitignore matching
-                pass
+            gitignore_spec = pathspec.PathSpec.from_lines("gitwildmatch", patterns)
 
     sections: list[str] = []
     file_count = 0

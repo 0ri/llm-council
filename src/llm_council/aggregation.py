@@ -7,10 +7,13 @@ bootstrap confidence intervals. Called after Stage 2 to feed Stage 3.
 
 from __future__ import annotations
 
+import logging
 import random
 from collections import defaultdict
 
 from .models import AggregateRanking, Stage2Result
+
+logger = logging.getLogger("llm-council")
 
 
 def bootstrap_confidence_intervals(
@@ -103,6 +106,7 @@ def calculate_aggregate_rankings(
         Tuple of (aggregate rankings list, valid ballot count, total ballot count)
     """
     model_positions: dict[str, list[int]] = defaultdict(list)
+    model_normalized_borda: dict[str, list[float]] = defaultdict(list)
     valid_ballots = 0
     total_ballots = len(stage2_results)
 
@@ -110,20 +114,38 @@ def calculate_aggregate_rankings(
         if not ranking.is_valid_ballot:
             continue
 
-        valid_ballots += 1
-
         ranker_labels = label_mappings.get(ranking.model, {})
 
+        # Track resolved vs phantom labels for this ballot
+        resolved: list[tuple[str, int]] = []
+        phantom_labels: list[str] = []
         for position, label in enumerate(ranking.parsed_ranking, start=1):
             if label in ranker_labels:
-                model_name = ranker_labels[label]
-                model_positions[model_name].append(position)
+                resolved.append((ranker_labels[label], position))
+            else:
+                phantom_labels.append(label)
 
-    # Calculate the maximum number of candidates any *valid* ranker evaluated
-    max_candidates = 0
-    for ranking in stage2_results:
-        if ranking.is_valid_ballot:
-            max_candidates = max(max_candidates, len(ranking.parsed_ranking))
+        # Item 12: Invalidate ballots with phantom (unresolvable) labels
+        if phantom_labels:
+            logger.warning(
+                f"Phantom labels in ballot from {ranking.model}: {phantom_labels}. "
+                f"Ballot invalidated ({len(resolved)}/{len(ranking.parsed_ranking)} labels resolved)."
+            )
+            continue
+
+        valid_ballots += 1
+        n_candidates = len(ranking.parsed_ranking)
+
+        for model_name, position in resolved:
+            model_positions[model_name].append(position)
+
+            # Item 13: Accumulate per-ballot normalized Borda scores (0-1 scale)
+            raw_borda = max(0, n_candidates - position)
+            if n_candidates > 1:
+                normalized = raw_borda / (n_candidates - 1)
+            else:
+                normalized = 1.0  # Single candidate always gets full score
+            model_normalized_borda[model_name].append(normalized)
 
     # Create seeded RNG if seed provided
     rng = random.Random(seed) if seed is not None else None
@@ -137,9 +159,9 @@ def calculate_aggregate_rankings(
             # Calculate confidence intervals
             ci_lower, ci_upper = bootstrap_confidence_intervals(positions, rng=rng)
 
-            # Calculate Borda score
-            # Use max_candidates as the number of candidates for Borda scoring
-            borda_score = calculate_borda_score(positions, max_candidates)
+            # Item 13: Average normalized Borda scores across ballots
+            borda_scores = model_normalized_borda.get(model, [])
+            borda_score = round(sum(borda_scores) / len(borda_scores), 2) if borda_scores else 0.0
 
             aggregate.append(
                 AggregateRanking(

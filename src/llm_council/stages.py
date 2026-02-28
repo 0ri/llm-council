@@ -92,7 +92,7 @@ async def query_model(
             budget_reserved = True
         except BudgetExceededError:
             logger.warning(f"Budget exceeded, skipping {model_name}")
-            return None, None
+            return None, {"budget_exceeded": True}
 
     # Build typed request for the provider
     request = ProviderRequest(
@@ -280,11 +280,13 @@ async def query_models_parallel(
             result, token_usage = await query_model(config, messages, ctx, system_message)
             elapsed = time.time() - start
             if progress:
-                await progress.update_model(
-                    name,
-                    ModelStatus.DONE if result else ModelStatus.FAILED,
-                    elapsed,
-                )
+                if result:
+                    status = ModelStatus.DONE
+                elif isinstance(token_usage, dict) and token_usage.get("budget_exceeded"):
+                    status = ModelStatus.BUDGET
+                else:
+                    status = ModelStatus.FAILED
+                await progress.update_model(name, status, elapsed)
             return (name, result, token_usage)
         except Exception as e:
             elapsed = time.time() - start
@@ -571,6 +573,7 @@ async def stage2_collect_rankings(
 
     # Prepare ranking tasks for each model
     ranking_tasks = []
+    ranking_task_names: list[str] = []  # Parallel list tracking ranker name per task
 
     for ranker_model in council_models:
         ranker_name = ranker_model.get("name", "unknown")
@@ -627,6 +630,7 @@ async def stage2_collect_rankings(
                 suppress_provider_flags=True,
             )
         )
+        ranking_task_names.append(ranker_name)
 
     # Execute all ranking tasks in parallel
     if progress:
@@ -636,20 +640,34 @@ async def stage2_collect_rankings(
     start_times = {m.get("name", "unknown"): time.time() for m in council_models}
     ranking_results = await asyncio.gather(*ranking_tasks)
 
-    # Format results
+    # Format results — iterate ALL results to ensure failed models get status updates
     stage2_results: list[Stage2Result] = []
     token_usages: dict[str, dict[str, Any] | None] = {}
 
-    for result in ranking_results:
+    for i, result in enumerate(ranking_results):
+        ranker_name = ranking_task_names[i]
         if result is not None:
             ranking_data, token_usage = result
             if ranking_data is not None:
                 stage2_results.append(ranking_data)
                 token_usages[ranking_data.model] = token_usage
                 if progress:
-                    elapsed = time.time() - start_times[ranking_data.model]
+                    elapsed = time.time() - start_times.get(ranking_data.model, time.time())
                     status = ModelStatus.DONE if ranking_data.is_valid_ballot else ModelStatus.FAILED
                     await progress.update_model(ranking_data.model, status, elapsed)
+            else:
+                # ranking_data is None — model failed to produce a ranking
+                if progress:
+                    elapsed = time.time() - start_times.get(ranker_name, time.time())
+                    if isinstance(token_usage, dict) and token_usage.get("budget_exceeded"):
+                        await progress.update_model(ranker_name, ModelStatus.BUDGET, elapsed)
+                    else:
+                        await progress.update_model(ranker_name, ModelStatus.FAILED, elapsed)
+        else:
+            # result is None — handle defensively
+            if progress:
+                elapsed = time.time() - start_times.get(ranker_name, time.time())
+                await progress.update_model(ranker_name, ModelStatus.FAILED, elapsed)
 
     # Retry loop for invalid ballots
     for retry_round in range(stage2_max_retries):

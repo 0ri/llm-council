@@ -60,7 +60,7 @@ def format_anonymized_responses(
     return "\n\n".join(parts)
 
 
-def sanitize_user_input(text: str, max_length: int = 500000) -> str:
+def sanitize_user_input(text: str, max_length: int = 200000) -> str:
     """Sanitize user input before embedding it in LLM prompts.
 
     Strips control characters (preserving newlines, tabs, and carriage

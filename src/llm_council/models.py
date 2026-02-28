@@ -83,6 +83,7 @@ class CouncilConfig(BaseModel):
     soft_timeout: float = 300
     min_responses: int | None = None
     stage2_retries: int = 1
+    min_valid_ballots: int | None = None
 
     @model_validator(mode="after")
     def _validate_council_models(self) -> CouncilConfig:

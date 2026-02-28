@@ -22,6 +22,20 @@ from .providers.poe import PoeProvider
 
 logger = logging.getLogger(__name__)
 
+# Item 21: Provider registry mapping provider names to their classes.
+# Keeps the if/elif dispatch in get_provider data-driven and extensible.
+PROVIDER_REGISTRY: dict[str, type[Provider]] = {
+    "bedrock": BedrockProvider,
+    "poe": PoeProvider,
+    "openrouter": OpenRouterProvider,
+}
+
+# API key requirements per provider (field name on CouncilContext -> display name)
+_PROVIDER_API_KEYS: dict[str, str] = {
+    "poe": "poe_api_key",
+    "openrouter": "openrouter_api_key",
+}
+
 
 @dataclass
 class CouncilContext:
@@ -79,6 +93,16 @@ class CouncilContext:
     _shutdown_called: bool = field(default=False, init=False, repr=False)
 
     # ------------------------------------------------------------------
+    # Async context manager (Item 16)
+    # ------------------------------------------------------------------
+
+    async def __aenter__(self) -> CouncilContext:
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        await self.shutdown()
+
+    # ------------------------------------------------------------------
     # Lazy accessor helpers
     # ------------------------------------------------------------------
 
@@ -91,22 +115,25 @@ class CouncilContext:
     def get_provider(self, provider_name: str) -> Provider:
         """Return a cached provider instance, creating it lazily.
 
-        Raises ``ValueError`` for unknown provider names or if the Poe
-        provider is requested without an API key.
+        Uses ``PROVIDER_REGISTRY`` for dispatch.  Raises ``ValueError``
+        for unknown provider names or if a required API key is missing.
         """
         if provider_name not in self.providers:
-            if provider_name == "bedrock":
-                self.providers[provider_name] = BedrockProvider()
-            elif provider_name == "poe":
-                if not self.poe_api_key:
-                    raise ValueError("POE_API_KEY required for Poe provider")
-                self.providers[provider_name] = PoeProvider(self.poe_api_key)
-            elif provider_name == "openrouter":
-                if not self.openrouter_api_key:
-                    raise ValueError("OPENROUTER_API_KEY required for OpenRouter provider")
-                self.providers[provider_name] = OpenRouterProvider(self.openrouter_api_key)
-            else:
+            provider_cls = PROVIDER_REGISTRY.get(provider_name)
+            if provider_cls is None:
                 raise ValueError(f"Unknown provider: {provider_name}")
+
+            # Check API key requirements
+            api_key_attr = _PROVIDER_API_KEYS.get(provider_name)
+            if api_key_attr is not None:
+                api_key = getattr(self, api_key_attr, None)
+                if not api_key:
+                    env_var = api_key_attr.upper()  # e.g. poe_api_key -> POE_API_KEY
+                    raise ValueError(f"{env_var} required for {provider_name.title()} provider")
+                self.providers[provider_name] = provider_cls(api_key)
+            else:
+                self.providers[provider_name] = provider_cls()
+
         return self.providers[provider_name]
 
     async def close(self) -> None:

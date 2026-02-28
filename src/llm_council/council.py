@@ -9,6 +9,7 @@ through a ``CouncilContext``.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import sys
 import time
@@ -234,135 +235,151 @@ async def run_council(
         max_cost_str = str(ctx.budget_guard.max_cost_usd) if ctx.budget_guard.max_cost_usd else "unlimited"
         logger.info(f"Budget limits: {max_tokens_str} tokens, ${max_cost_str}")
 
-    try:
-        logger.info("Stage 1: Collecting responses from council...")
-        stage1_results, stage1_token_usages = await stage1_collect_responses(
-            question,
-            council_models,
-            ctx,
-            soft_timeout=config.get("soft_timeout"),
-            min_responses=config.get("min_responses"),
-        )
+    async with ctx:
+        try:
+            logger.info("Stage 1: Collecting responses from council...")
+            stage1_results, stage1_token_usages = await stage1_collect_responses(
+                question,
+                council_models,
+                ctx,
+                soft_timeout=config.get("soft_timeout"),
+                min_responses=config.get("min_responses"),
+            )
 
-        if not stage1_results:
-            return "Error: All models failed to respond. Please check your API credentials."
+            if not stage1_results:
+                return "Error: All models failed to respond. Please check your API credentials."
 
-        logger.info(f"Stage 1 complete: {len(stage1_results)} responses collected")
+            logger.info(f"Stage 1 complete: {len(stage1_results)} responses collected")
 
-        if run_logger:
-            run_logger.log_stage1(stage1_results, stage1_token_usages)
+            if run_logger:
+                run_logger.log_stage1(stage1_results, stage1_token_usages)
 
-        # Record stage 1 token usage with actual counts when available
-        for result in stage1_results:
-            model_name = result.model
-            token_usage = stage1_token_usages.get(model_name)
-            ctx.cost_tracker.record_with_usage(model_name, 1, question, result.response, token_usage)
+            # Record stage 1 token usage with actual counts when available
+            for result in stage1_results:
+                model_name = result.model
+                token_usage = stage1_token_usages.get(model_name)
+                ctx.cost_tracker.record_with_usage(model_name, 1, question, result.response, token_usage)
 
-        if max_stage == 1:
+            if max_stage == 1:
+                total_elapsed = time.time() - start_time
+                await ctx.progress.complete_council(total_elapsed)
+                return format_stage1_output(stage1_results)
+
+            logger.info("Stage 2: Collecting peer rankings...")
+            stage2_results, per_ranker_label_mappings, stage2_token_usages = await stage2_collect_rankings(
+                question, stage1_results, council_models, ctx
+            )
+
+            logger.info(f"Stage 2 complete: {len(stage2_results)} rankings collected")
+
+            # Record stage 2 token usage with actual counts when available
+            for result in stage2_results:
+                model_name = result.model
+                token_usage = stage2_token_usages.get(model_name)
+                ctx.cost_tracker.record_with_usage(model_name, 2, "[ranking prompt]", result.ranking, token_usage)
+
+            if run_logger:
+                run_logger.log_stage2(stage2_results, per_ranker_label_mappings, stage2_token_usages)
+
+            # Calculate aggregate rankings with ballot validity tracking
+            aggregate_rankings, valid_ballots, total_ballots = calculate_aggregate_rankings(
+                stage2_results, per_ranker_label_mappings, seed=seed
+            )
+
+            logger.info(f"Valid ballots: {valid_ballots}/{total_ballots}")
+
+            # Item 14: Check min_valid_ballots threshold
+            min_vb = config.get("min_valid_ballots")
+            ballot_threshold = min_vb if min_vb is not None else math.ceil(total_ballots / 2)
+            low_ballot_warning = ""
+            if valid_ballots < ballot_threshold:
+                low_ballot_warning = (
+                    f"\n> \u26a0 Low ballot confidence: only {valid_ballots}/{total_ballots} "
+                    f"valid ballots (minimum: {ballot_threshold})\n"
+                )
+                logger.warning(
+                    f"Low ballot confidence: {valid_ballots}/{total_ballots} valid ballots "
+                    f"(minimum: {ballot_threshold})"
+                )
+
+            if run_logger:
+                run_logger.log_aggregation(aggregate_rankings, valid_ballots, total_ballots)
+
+            if max_stage == 2:
+                total_elapsed = time.time() - start_time
+                await ctx.progress.complete_council(total_elapsed)
+                output = format_stage2_output(aggregate_rankings, stage1_results, valid_ballots, total_ballots)
+                return low_ballot_warning + output if low_ballot_warning else output
+
+            # For stage 3, create a unified label mapping (using the first ranker's mapping for consistency)
+            # This is needed because the chairman needs a single view of the anonymized labels
+            label_to_model = {}
+            if per_ranker_label_mappings:
+                # Use the mapping from any ranker (they all map to the same models, just different orders)
+                # We need to create a canonical mapping for the chairman
+                for i, result in enumerate(stage1_results):
+                    label_to_model[f"Response {chr(65 + i)}"] = result.model
+
+            logger.info("Stage 3: Chairman synthesizing final answer...")
+            stage3_result, stage3_token_usage = await stage3_synthesize_final(
+                question,
+                stage1_results,
+                stage2_results,
+                label_to_model,
+                aggregate_rankings,
+                chairman_config,
+                ctx,
+                stream=stream,
+                on_chunk=on_chunk,
+            )
+
+            logger.info("Stage 3 complete!")
+
+            if run_logger:
+                run_logger.log_stage3(stage3_result, stage3_token_usage)
+
+            # Record stage 3 token usage with actual counts when available
+            ctx.cost_tracker.record_with_usage(
+                stage3_result.model, 3, "[synthesis prompt]", stage3_result.response, stage3_token_usage
+            )
+
+            logger.info(ctx.cost_tracker.summary())
+
+            # Log budget usage if configured
+            if ctx.budget_guard:
+                logger.info(ctx.budget_guard.summary())
+
             total_elapsed = time.time() - start_time
             await ctx.progress.complete_council(total_elapsed)
-            return format_stage1_output(stage1_results)
 
-        logger.info("Stage 2: Collecting peer rankings...")
-        stage2_results, per_ranker_label_mappings, stage2_token_usages = await stage2_collect_rankings(
-            question, stage1_results, council_models, ctx
-        )
+            if run_logger:
+                run_logger.log_summary(ctx.cost_tracker.summary(), total_elapsed)
 
-        logger.info(f"Stage 2 complete: {len(stage2_results)} rankings collected")
+            # Create run manifest (use the same run_id generated earlier)
+            manifest = RunManifest.create(
+                question=question,
+                config=config,
+                stage1_count=len(stage1_results),
+                valid_ballots=valid_ballots,
+                total_ballots=total_ballots,
+                elapsed_seconds=total_elapsed,
+                estimated_tokens=ctx.cost_tracker.total_tokens,
+            )
+            manifest.run_id = run_id
 
-        # Record stage 2 token usage with actual counts when available
-        for result in stage2_results:
-            model_name = result.model
-            token_usage = stage2_token_usages.get(model_name)
-            ctx.cost_tracker.record_with_usage(model_name, 2, "[ranking prompt]", result.ranking, token_usage)
+            # Print manifest to stderr if requested
+            if print_manifest:
+                print(manifest.to_json(), file=sys.stderr)
 
-        if run_logger:
-            run_logger.log_stage2(stage2_results, per_ranker_label_mappings, stage2_token_usages)
+            # Format output with ballot validity and manifest
+            output = format_output(aggregate_rankings, stage3_result, valid_ballots, total_ballots)
+            if low_ballot_warning:
+                output = low_ballot_warning + output
 
-        # Calculate aggregate rankings with ballot validity tracking
-        aggregate_rankings, valid_ballots, total_ballots = calculate_aggregate_rankings(
-            stage2_results, per_ranker_label_mappings, seed=seed
-        )
+            # Append manifest as comment block
+            output += manifest.to_comment_block()
 
-        logger.info(f"Valid ballots: {valid_ballots}/{total_ballots}")
-
-        if run_logger:
-            run_logger.log_aggregation(aggregate_rankings, valid_ballots, total_ballots)
-
-        if max_stage == 2:
-            total_elapsed = time.time() - start_time
-            await ctx.progress.complete_council(total_elapsed)
-            return format_stage2_output(aggregate_rankings, stage1_results, valid_ballots, total_ballots)
-
-        # For stage 3, create a unified label mapping (using the first ranker's mapping for consistency)
-        # This is needed because the chairman needs a single view of the anonymized labels
-        label_to_model = {}
-        if per_ranker_label_mappings:
-            # Use the mapping from any ranker (they all map to the same models, just different orders)
-            # We need to create a canonical mapping for the chairman
-            for i, result in enumerate(stage1_results):
-                label_to_model[f"Response {chr(65 + i)}"] = result.model
-
-        logger.info("Stage 3: Chairman synthesizing final answer...")
-        stage3_result, stage3_token_usage = await stage3_synthesize_final(
-            question,
-            stage1_results,
-            stage2_results,
-            label_to_model,
-            aggregate_rankings,
-            chairman_config,
-            ctx,
-            stream=stream,
-            on_chunk=on_chunk,
-        )
-
-        logger.info("Stage 3 complete!")
-
-        if run_logger:
-            run_logger.log_stage3(stage3_result, stage3_token_usage)
-
-        # Record stage 3 token usage with actual counts when available
-        ctx.cost_tracker.record_with_usage(
-            stage3_result.model, 3, "[synthesis prompt]", stage3_result.response, stage3_token_usage
-        )
-
-        logger.info(ctx.cost_tracker.summary())
-
-        # Log budget usage if configured
-        if ctx.budget_guard:
-            logger.info(ctx.budget_guard.summary())
-
-        total_elapsed = time.time() - start_time
-        await ctx.progress.complete_council(total_elapsed)
-
-        if run_logger:
-            run_logger.log_summary(ctx.cost_tracker.summary(), total_elapsed)
-
-        # Create run manifest (use the same run_id generated earlier)
-        manifest = RunManifest.create(
-            question=question,
-            config=config,
-            stage1_count=len(stage1_results),
-            valid_ballots=valid_ballots,
-            total_ballots=total_ballots,
-            elapsed_seconds=total_elapsed,
-            estimated_tokens=ctx.cost_tracker.total_tokens,
-        )
-        manifest.run_id = run_id
-
-        # Print manifest to stderr if requested
-        if print_manifest:
-            print(manifest.to_json(), file=sys.stderr)
-
-        # Format output with ballot validity and manifest
-        output = format_output(aggregate_rankings, stage3_result, valid_ballots, total_ballots)
-
-        # Append manifest as comment block
-        output += manifest.to_comment_block()
-
-        return output
-    except BudgetExceededError as e:
-        logger.error(f"Budget exceeded: {e}")
-        return f"Error: Budget limit exceeded - {e}"
-    finally:
-        await ctx.shutdown()
+            return output
+        except BudgetExceededError as e:
+            logger.error(f"Budget exceeded: {e}")
+            return f"Error: Budget limit exceeded - {e}"
