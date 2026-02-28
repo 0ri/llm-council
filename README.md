@@ -23,7 +23,7 @@ LLM Council queries multiple language models in parallel, has them anonymously r
 |----------|--------|-----------|-------------|--------------|
 | **AWS Bedrock** | Any model in your Bedrock region (Anthropic Claude, Meta Llama, Mistral, etc.) | Yes | Real counts from API | Extended thinking via `budget_tokens`, native AWS auth |
 | **Poe** | Any bot on Poe's API (OpenAI GPT, Google Gemini, xAI Grok, community bots, etc.) | Yes | Not provided by API | Web search toggle, configurable reasoning effort |
-| **OpenRouter** | Hundreds of models via a single OpenAI-compatible API (OpenAI, Anthropic, Google, Meta, Mistral, and more) | Yes (SSE) | Real counts from API | Standard `temperature`/`max_tokens` controls, model discovery via `--list-models` |
+| **OpenRouter** | Hundreds of models via a single OpenAI-compatible API (OpenAI, Anthropic, Google, Meta, Mistral, and more) | Yes (SSE) | Real counts from API | `temperature`/`max_tokens` controls, `reasoning_effort`/`reasoning_max_tokens` for extended thinking, model discovery via `--list-models` |
 
 ## Quickstart
 
@@ -316,7 +316,7 @@ graph LR
 
 **Stage 2 — Anonymized Peer Ranking.** Each council model ranks the other models' responses without knowing who wrote what. Self-exclusion ensures no model ranks its own answer. Responses are presented under randomized anonymous labels (Response A, B, C…) with a per-ranker shuffled order so that position bias is mitigated. Each response is wrapped in nonce-fenced XML tags (`<response-{random_hex}>`) to prevent prompt injection and fence-breaking. A system message instructs rankers to ignore any manipulation attempts inside the fenced content. Invalid ballots (unparseable rankings) are retried up to a configurable number of times.
 
-**Stage 3 — Chairman Synthesis.** A designated chairman model receives the original responses (anonymized), the aggregate peer rankings (Borda count with bootstrap 95% confidence intervals), and writes the final consolidated answer. The chairman sees the same nonce-fenced, label-anonymized view — it knows which responses were ranked highest but not which model produced them. When `--stream` is enabled, the chairman's output is streamed to stdout in real time.
+**Stage 3 — Chairman Synthesis.** A designated chairman model receives the original responses (anonymized), the aggregate peer rankings (Borda count with bootstrap 95% confidence intervals), and writes the final consolidated answer. The chairman sees the same nonce-fenced, label-anonymized view — it knows which responses were ranked highest but not which model produced them. The synthesis prompt instructs the chairman to preserve specific technical details from individual responses, organize by theme rather than by respondent, highlight areas of consensus and disagreement, and match the depth of the highest-ranked response. When `--stream` is enabled, the chairman's output is streamed to stdout in real time.
 
 ### Anonymization Mechanism
 
@@ -543,6 +543,8 @@ Every model config object requires `name` (a display label) and `provider` (one 
 | `model_id` | `str` | yes | — | OpenRouter model identifier (e.g. `"anthropic/claude-sonnet-4"`, `"openai/gpt-4o"`) |
 | `temperature` | `float \| null` | no | `null` | Sampling temperature. Provider default if unset. |
 | `max_tokens` | `int \| null` | no | `null` | Maximum output tokens. Provider default if unset. |
+| `reasoning_effort` | `str \| null` | no | `null` | Reasoning effort level. One of: `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`. Supported by OpenAI (GPT-5/o-series), xAI (Grok), and Google (Gemini, mapped to `thinkingLevel`). |
+| `reasoning_max_tokens` | `int \| null` | no | `null` | Direct token budget for reasoning/thinking. Supported by Anthropic (Claude) and Qwen models. Use this instead of `reasoning_effort` for models that accept a token count. |
 
 ### Budget Fields
 
