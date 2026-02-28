@@ -194,6 +194,19 @@ class BudgetGuard:
 
         logger.debug(f"Budget committed for {model_name}: {input_tokens} in + {output_tokens} out, ${query_cost:.4f}")
 
+        # Post-hoc overrun detection: tokens are already spent, so warn rather than raise
+        total_tokens = self.total_input_tokens + self.total_output_tokens
+        if self.max_tokens is not None and total_tokens > self.max_tokens:
+            logger.warning(
+                f"Budget overrun after commit: {total_tokens} tokens > {self.max_tokens} limit "
+                f"(model: {model_name})"
+            )
+        if self.max_cost_usd is not None and self.total_cost_usd > self.max_cost_usd:
+            logger.warning(
+                f"Budget overrun after commit: ${self.total_cost_usd:.2f} > "
+                f"${self.max_cost_usd:.2f} limit (model: {model_name})"
+            )
+
     def can_afford(
         self,
         estimated_input_tokens: int,

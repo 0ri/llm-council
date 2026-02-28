@@ -66,10 +66,17 @@ STAGE 2 - Aggregate Peer Rankings (best to worst):
 
 {ranking_summary}
 
-Your task as Chairman is to synthesize all of this information into a single, comprehensive, \
-accurate answer to the user's original question. Consider:
-- The individual responses and their insights
-- The peer rankings and what they reveal about response quality
-- Any patterns of agreement or disagreement
+Your task as Chairman is to write a comprehensive synthesis that integrates the strongest \
+contributions from all council members. You must:
 
-Provide a clear, well-reasoned final answer that represents the council's collective wisdom:"""
+1. Preserve specific technical details, code references, file names, and concrete examples \
+from the individual responses — do not abstract them away into vague summaries.
+2. Where council members agree, state the consensus clearly and note the strength of agreement.
+3. Where council members disagree or offer unique insights not found in other responses, \
+highlight these as distinct perspectives worth the reader's attention.
+4. Organize the synthesis by topic/theme rather than by response, so the reader gets a \
+coherent narrative rather than a list of "Response A said X, Response B said Y."
+5. The synthesis should be at least as detailed as the highest-ranked individual response. \
+If the top-ranked response is 2000 words, your synthesis should be comparable in depth.
+
+Write the synthesis now:"""

@@ -284,8 +284,13 @@ async def run_council(
                 run_logger.log_stage2(stage2_results, per_ranker_label_mappings, stage2_token_usages)
 
             # Calculate aggregate rankings with ballot validity tracking
+            # Use len(per_ranker_label_mappings) as attempted count to avoid undercounting
+            # when models fail before producing any Stage2Result
             aggregate_rankings, valid_ballots, total_ballots = calculate_aggregate_rankings(
-                stage2_results, per_ranker_label_mappings, seed=seed
+                stage2_results,
+                per_ranker_label_mappings,
+                seed=seed,
+                attempted_count=len(per_ranker_label_mappings),
             )
 
             logger.info(f"Valid ballots: {valid_ballots}/{total_ballots}")

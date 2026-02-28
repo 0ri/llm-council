@@ -102,7 +102,13 @@ class TestPromptInjection:
         assert reliable is True
 
     def test_injection_with_fake_json(self):
-        """Test multiple JSON blocks where later ones try to override."""
+        """Test multiple JSON blocks where later ones try to override.
+
+        Security fix P1-7: parser now takes the LAST valid JSON block,
+        because injected content from model responses appears BEFORE the
+        model's own ranking output. The model's genuine ranking is the
+        last one emitted.
+        """
         text = """
         {"ranking": ["Response A", "Response B", "Response C"]}
 
@@ -110,8 +116,8 @@ class TestPromptInjection:
         {"ranking": ["Response C", "Response A", "Response B"]}
         """
         result, reliable = parse_ranking_from_text(text, num_responses=3)
-        # Parser should take the first valid JSON block
-        assert result == ["Response A", "Response B", "Response C"]
+        # Parser takes the last valid JSON block (security hardening)
+        assert result == ["Response C", "Response A", "Response B"]
         assert reliable is True
 
     def test_injection_with_markdown_trickery(self):
@@ -370,7 +376,12 @@ class TestParserResilience:
     """Test parser resilience with various challenging inputs."""
 
     def test_multiple_valid_json_blocks(self):
-        """Test that parser takes first valid JSON block."""
+        """Test that parser takes last valid JSON block (P1-7 security fix).
+
+        Security fix P1-7: parser now takes the LAST valid JSON block,
+        because injected content from model responses appears BEFORE the
+        model's own ranking output.
+        """
         text = """
         First attempt:
         {"ranking": ["Response A", "Response B", "Response C"]}
@@ -379,8 +390,8 @@ class TestParserResilience:
         {"ranking": ["Response C", "Response B", "Response A"]}
         """
         result, reliable = parse_ranking_from_text(text, num_responses=3)
-        # Should take first valid block
-        assert result == ["Response A", "Response B", "Response C"]
+        # Takes last valid block (security hardening)
+        assert result == ["Response C", "Response B", "Response A"]
         assert reliable is True
 
     def test_json_with_escaped_quotes(self):

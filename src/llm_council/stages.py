@@ -129,6 +129,10 @@ async def query_model(
             await ctx.budget_guard.acommit(actual_in, actual_out, model_name, estimated_input, estimated_output)
 
         return {"content": content}, token_usage
+    except asyncio.CancelledError:
+        if budget_reserved:
+            await ctx.budget_guard.arelease(estimated_input, estimated_output, model_name)
+        raise
     except asyncio.TimeoutError:
         cb.record_failure()
         if budget_reserved:
@@ -210,6 +214,7 @@ async def stream_model(
         suppress_provider_flags=suppress_provider_flags,
     )
 
+    accumulated = ""
     try:
         provider = ctx.get_provider(provider_name)
 
@@ -217,8 +222,6 @@ async def stream_model(
             stream_result = provider.astream("", model_config, MODEL_TIMEOUT, request=request)
         else:
             stream_result = fallback_astream(provider, "", model_config, MODEL_TIMEOUT, request=request)
-
-        accumulated = ""
         async for chunk in stream_result:
             accumulated += chunk
             if on_chunk is not None:
@@ -236,6 +239,10 @@ async def stream_model(
 
         return accumulated, usage
 
+    except asyncio.CancelledError:
+        if budget_reserved:
+            await ctx.budget_guard.arelease(estimated_input, estimated_output, model_name)
+        raise
     except Exception as e:
         cb.record_failure()
         if budget_reserved:
@@ -535,7 +542,7 @@ async def _get_ranking(
             parsed_ranking=parsed_ranking,
             is_valid_ballot=is_valid,
         ), token_usage
-    return None, None
+    return None, token_usage
 
 
 async def stage2_collect_rankings(
@@ -853,6 +860,8 @@ async def stage3_synthesize_final(
     start = time.time()
 
     if stream:
+        if progress:
+            await progress.pause_live()
         text, token_usage = await stream_model(
             chairman_config,
             messages,

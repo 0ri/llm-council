@@ -50,9 +50,15 @@ def is_retryable_openrouter_error(exc: BaseException) -> bool:
 class OpenRouterAPIError(Exception):
     """Error from the OpenRouter API."""
 
-    def __init__(self, status_code: int, message: str, headers: dict[str, str] | None = None):
+    def __init__(
+        self,
+        status_code: int,
+        message: str,
+        headers: Any | None = None,
+    ):
         self.status_code = status_code
         self.message = message
+        # Accept any mapping (httpx.Headers is case-insensitive); keep as-is
         self.headers = headers or {}
         super().__init__(f"OpenRouter API error {status_code}: {message}")
 
@@ -166,7 +172,7 @@ class OpenRouterProvider:
 
             if resp.status_code != 200:
                 error_msg = resp.text[:500]
-                raise OpenRouterAPIError(resp.status_code, error_msg, dict(resp.headers))
+                raise OpenRouterAPIError(resp.status_code, error_msg, resp.headers)
 
             data = resp.json()
 
@@ -233,22 +239,26 @@ class OpenRouterProvider:
                 body = self._build_body(model_config, api_messages)
                 body["stream"] = True
 
-                return await client.send(
+                resp = await client.send(
                     client.build_request("POST", "/chat/completions", json=body),
                     stream=True,
                 )
 
-            resp = await asyncio.wait_for(_stream_inner(), timeout=timeout)
-
-            try:
+                # Check status inside _stream_inner so tenacity can retry on 429/5xx
                 if resp.status_code != 200:
                     error_text = ""
                     async for chunk in resp.aiter_text():
                         error_text += chunk
                         if len(error_text) > 500:
                             break
-                    raise OpenRouterAPIError(resp.status_code, error_text[:500], dict(resp.headers))
+                    await resp.aclose()
+                    raise OpenRouterAPIError(resp.status_code, error_text[:500], resp.headers)
 
+                return resp
+
+            resp = await asyncio.wait_for(_stream_inner(), timeout=timeout)
+
+            try:
                 async for line in resp.aiter_lines():
                     if not line.startswith("data: "):
                         continue

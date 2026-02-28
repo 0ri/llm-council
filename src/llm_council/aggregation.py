@@ -94,6 +94,7 @@ def calculate_aggregate_rankings(
     stage2_results: list[Stage2Result],
     label_mappings: dict[str, dict[str, str]],
     seed: int | None = None,
+    attempted_count: int | None = None,
 ) -> tuple[list[AggregateRanking], int, int]:
     """Calculate aggregate rankings across all models.
 
@@ -101,6 +102,9 @@ def calculate_aggregate_rankings(
         stage2_results: List of Stage2Result ranking results
         label_mappings: Per-ranker mappings: {ranker_name: {label: model_name}}
         seed: Optional seed for reproducible bootstrap confidence intervals
+        attempted_count: Number of models that attempted ranking. When provided,
+            used as total_ballots instead of len(stage2_results) to avoid
+            undercounting when models fail before producing any result.
 
     Returns:
         Tuple of (aggregate rankings list, valid ballot count, total ballot count)
@@ -108,7 +112,7 @@ def calculate_aggregate_rankings(
     model_positions: dict[str, list[int]] = defaultdict(list)
     model_normalized_borda: dict[str, list[float]] = defaultdict(list)
     valid_ballots = 0
-    total_ballots = len(stage2_results)
+    total_ballots = attempted_count if attempted_count is not None else len(stage2_results)
 
     for ranking in stage2_results:
         if not ranking.is_valid_ballot:

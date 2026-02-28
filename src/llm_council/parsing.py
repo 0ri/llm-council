@@ -53,8 +53,9 @@ def _parse_json_ranking(text: str, num_responses: int | None = None) -> list[str
     Returns:
         List of ranking labels if successful, None otherwise
     """
-    # Try JSON format with code blocks first
-    json_match = re.search(r"```json\s*(\{[^`]*\})\s*```", text)
+    # Try JSON format with code blocks first (take LAST match to defeat injection)
+    json_matches = list(re.finditer(r"```json\s*(\{[^`]*\})\s*```", text))
+    json_match = json_matches[-1] if json_matches else None
     if json_match:
         try:
             data = json.loads(json_match.group(1))
@@ -66,8 +67,9 @@ def _parse_json_ranking(text: str, num_responses: int | None = None) -> list[str
         except json.JSONDecodeError:
             pass
 
-    # Try inline JSON (without code blocks)
-    inline_json_match = re.search(r'\{\s*"ranking"\s*:\s*\[([^\]]+)\]\s*\}', text)
+    # Try inline JSON (without code blocks) — take LAST match to defeat injection
+    inline_json_matches = list(re.finditer(r'\{\s*"ranking"\s*:\s*\[([^\]]+)\]\s*\}', text))
+    inline_json_match = inline_json_matches[-1] if inline_json_matches else None
     if inline_json_match:
         try:
             full_match = inline_json_match.group(0)
