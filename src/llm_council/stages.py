@@ -486,6 +486,8 @@ def build_ranking_prompt(
     question: str,
     responses: list[tuple[str, str]],
     response_order: list[int] | None = None,
+    *,
+    custom_template: str | None = None,
 ) -> str:
     """Construct the prompt for peer ranking with anonymized responses.
 
@@ -510,7 +512,8 @@ def build_ranking_prompt(
     # Build responses with randomized XML delimiters for injection hardening
     responses_text = format_anonymized_responses(ordered_responses, nonce=nonce)
 
-    ranking_prompt = RANKING_PROMPT_TEMPLATE.format(
+    template = custom_template or RANKING_PROMPT_TEMPLATE
+    ranking_prompt = template.format(
         question=question,
         nonce=nonce,
         responses_text=responses_text,
@@ -581,9 +584,11 @@ async def stage2_collect_rankings(
         model_names = [m.name for m in council_models]
         await progress.start_stage(2, f"Peer ranking ({len(stage1_results)} responses)", model_names)
 
-    # System message for injection hardening
+    # System message for injection hardening (supports custom templates via config)
     base_resistance_msg = build_manipulation_resistance_msg()
-    system_message = RANKING_SYSTEM_MESSAGE_TEMPLATE.format(manipulation_resistance_msg=base_resistance_msg)
+    prompt_config = getattr(ctx, "prompt_config", None)
+    ranking_sys_template = (prompt_config.resolve("ranking_system") if prompt_config else None) or RANKING_SYSTEM_MESSAGE_TEMPLATE
+    system_message = ranking_sys_template.format(manipulation_resistance_msg=base_resistance_msg)
 
     # Build responses tuples for prompt construction, sanitizing outputs
     response_tuples = [(result.model, sanitize_model_output(result.response)) for result in stage1_results]
@@ -630,7 +635,8 @@ async def stage2_collect_rankings(
         per_ranker_label_mappings[ranker_name] = label_to_model
 
         # Build the ranking prompt with randomized order
-        ranking_prompt = build_ranking_prompt(user_query, filtered_responses, response_order)
+        custom_ranking_user = (prompt_config.resolve("ranking_user") if prompt_config else None)
+        ranking_prompt = build_ranking_prompt(user_query, filtered_responses, response_order, custom_template=custom_ranking_user)
 
         messages = [{"role": "user", "content": ranking_prompt}]
 
@@ -762,6 +768,8 @@ def build_synthesis_prompt(
     rankings: dict[str, str],
     labels: list[str],
     aggregate_rankings: list[AggregateRanking],
+    *,
+    custom_template: str | None = None,
 ) -> str:
     """Construct the chairman synthesis prompt with anonymized context.
 
@@ -791,7 +799,8 @@ def build_synthesis_prompt(
         ranking_summary_lines.append(f"- {label}: Average position {rank_info.average_rank}")
     ranking_summary = "\n".join(ranking_summary_lines)
 
-    chairman_prompt = SYNTHESIS_PROMPT_TEMPLATE.format(
+    template = custom_template or SYNTHESIS_PROMPT_TEMPLATE
+    chairman_prompt = template.format(
         question=question,
         stage1_text=stage1_text,
         ranking_summary=ranking_summary,
@@ -841,18 +850,22 @@ async def stage3_synthesize_final(
     response_tuples = [(result.model, sanitize_model_output(result.response)) for result in stage1_results]
     labels = generate_response_labels(len(stage1_results))
 
-    # Build the synthesis prompt
+    # Build the synthesis prompt (supports custom templates via config)
+    prompt_config = getattr(ctx, "prompt_config", None)
+    custom_synthesis_user = (prompt_config.resolve("synthesis_user") if prompt_config else None)
     chairman_prompt = build_synthesis_prompt(
         user_query,
         response_tuples,
         label_to_model,
         labels,
         aggregate_rankings,
+        custom_template=custom_synthesis_user,
     )
 
-    # System message for injection hardening
+    # System message for injection hardening (supports custom templates via config)
     base_resistance_msg = build_manipulation_resistance_msg()
-    system_message = SYNTHESIS_SYSTEM_MESSAGE_TEMPLATE.format(manipulation_resistance_msg=base_resistance_msg)
+    synthesis_sys_template = (prompt_config.resolve("synthesis_system") if prompt_config else None) or SYNTHESIS_SYSTEM_MESSAGE_TEMPLATE
+    system_message = synthesis_sys_template.format(manipulation_resistance_msg=base_resistance_msg)
 
     messages = [{"role": "user", "content": chairman_prompt}]
 

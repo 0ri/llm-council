@@ -222,6 +222,12 @@ async def run_council(
     else:
         from .cache import ResponseCache
 
+        # Load custom prompt templates from config if present
+        from .models import PromptConfig
+        prompt_config = None
+        if "prompts" in config:
+            prompt_config = PromptConfig(**config["prompts"])
+
         ctx = CouncilContext(
             poe_api_key=os.environ.get("POE_API_KEY"),
             openrouter_api_key=os.environ.get("OPENROUTER_API_KEY"),
@@ -230,6 +236,7 @@ async def run_council(
             progress=ProgressManager(),
             stage2_max_retries=config.get("stage2_retries", 1),
             cache=ResponseCache(ttl=cache_ttl) if use_cache else None,
+            prompt_config=prompt_config,
         )
 
     if ctx.budget_guard:

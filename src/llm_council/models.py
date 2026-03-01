@@ -127,6 +127,42 @@ class BudgetConfig(BaseModel):
     output_cost_per_1k: Annotated[float, Field(ge=0)] = 0.03
 
 
+class PromptConfig(BaseModel):
+    """Custom prompt templates for Stage 2 ranking and Stage 3 synthesis.
+
+    All fields are optional — omitted fields use the built-in defaults.
+    Templates must include the required ``{placeholders}`` documented in
+    ``docs/examples/prompts/README.md``.
+
+    Inline strings or file paths are both supported:
+    - ``ranking_system``: inline template string
+    - ``ranking_system_file``: path to a text file containing the template
+
+    If both inline and file variants are set, the inline string wins.
+    """
+
+    ranking_system: str | None = None
+    ranking_system_file: str | None = None
+    ranking_user: str | None = None
+    ranking_user_file: str | None = None
+    synthesis_system: str | None = None
+    synthesis_system_file: str | None = None
+    synthesis_user: str | None = None
+    synthesis_user_file: str | None = None
+
+    def resolve(self, field: str) -> str | None:
+        """Resolve a prompt field, preferring inline over file."""
+        from pathlib import Path
+
+        inline = getattr(self, field, None)
+        if inline is not None:
+            return inline
+        file_path = getattr(self, f"{field}_file", None)
+        if file_path is not None:
+            return Path(file_path).read_text(encoding="utf-8").strip()
+        return None
+
+
 class CouncilConfig(BaseModel):
     """Top-level council configuration for a deliberation run.
 
@@ -144,6 +180,7 @@ class CouncilConfig(BaseModel):
     council_models: list[ModelConfig] = Field(min_length=1)
     chairman: ModelConfig
     budget: BudgetConfig | None = None
+    prompts: PromptConfig | None = None
     cache_ttl: int = 86400
     soft_timeout: float = 300
     min_responses: int | None = None

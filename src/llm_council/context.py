@@ -12,6 +12,7 @@ import inspect
 import logging
 import warnings
 from dataclasses import dataclass, field
+from typing import Any
 
 from .budget import BudgetGuard
 from .cache import ResponseCache
@@ -92,6 +93,7 @@ class CouncilContext:
     budget_guard: BudgetGuard | None = None
     progress: ProgressManager = field(default_factory=ProgressManager)
     cache: ResponseCache | None = None
+    prompt_config: Any | None = None  # Optional PromptConfig for custom templates
     _shutdown_called: bool = field(default=False, init=False, repr=False)
 
     # ------------------------------------------------------------------

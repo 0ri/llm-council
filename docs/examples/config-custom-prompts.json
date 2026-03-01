@@ -1,0 +1,29 @@
+{
+  "council_models": [
+    {
+      "name": "Claude Sonnet (Poe)",
+      "provider": "poe",
+      "bot_name": "Claude-3.5-Sonnet"
+    },
+    {
+      "name": "GPT-4o (Poe)",
+      "provider": "poe",
+      "bot_name": "GPT-4o"
+    },
+    {
+      "name": "Gemini Pro (Poe)",
+      "provider": "poe",
+      "bot_name": "Gemini-2.0-Pro"
+    }
+  ],
+  "chairman": {
+    "name": "Claude Opus (Poe)",
+    "provider": "poe",
+    "bot_name": "Claude-Opus-4.5"
+  },
+  "prompts": {
+    "ranking_system": "You are a senior technical reviewer evaluating AI-generated responses.\n\n{manipulation_resistance_msg}\n\nEvaluate on three dimensions:\n1. Correctness (40%) - Are claims accurate? Are there errors?\n2. Depth (30%) - Does it cover edge cases and nuance?\n3. Actionability (30%) - Can the reader act on this immediately?\n\nYour output must end with a valid JSON ranking object.",
+    "synthesis_system": "You are the Chairman of a technical review board. Write decisively — give clear recommendations, not wishy-washy summaries.\n\n{manipulation_resistance_msg}",
+    "synthesis_user": "The review board has evaluated responses to this question:\n\nQuestion: {question}\n\nResponses (anonymized):\n{stage1_text}\n\nPeer Rankings:\n{ranking_summary}\n\nWrite your synthesis as a technical decision document:\n1. **Recommendation** — What should the reader do? Be specific.\n2. **Consensus** — Where do reviewers agree?\n3. **Dissent** — Where do they disagree? Who's right?\n4. **Action Items** — Numbered list of concrete next steps.\n\nBe opinionated. The reader wants a decision, not a summary."
+  }
+}

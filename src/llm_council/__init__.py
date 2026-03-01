@@ -8,7 +8,7 @@ from importlib.metadata import PackageNotFoundError, version
 
 from llm_council.context import CouncilContext
 from llm_council.council import run_council
-from llm_council.models import BudgetConfig, CouncilConfig
+from llm_council.models import BudgetConfig, CouncilConfig, PromptConfig
 
 try:
     __version__ = version("llm-council-skill")
