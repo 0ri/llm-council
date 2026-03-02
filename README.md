@@ -1,5 +1,9 @@
 # LLM Council
 
+<p align="center">
+  <img src="docs/header_infographic.png" alt="LLM Council — Multi-model deliberation with anonymized peer review" width="800">
+</p>
+
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![CI](https://github.com/0ri/llm-council/actions/workflows/ci.yml/badge.svg)
