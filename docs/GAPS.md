@@ -118,7 +118,7 @@ Alternatively, [Sphinx](https://www.sphinx-doc.org/) with `autodoc` and the `nap
 - **Skill versioning and updates:** Neither `.claude/commands/council.md` nor `skills/council/SKILL.md` document how users should handle skill updates when the upstream project changes. There is no guidance on re-syncing skill files after a `git pull`.
 - **Skill-specific troubleshooting:** The skill files document basic error handling (model failure, missing config, missing credentials) but lack detailed troubleshooting steps — e.g., what to do when the skill script fails silently, how to enable verbose output from within a skill invocation, or how to debug `{baseDir}` path resolution issues in OpenClaw.
 - **Shared script divergence:** The README documents that `.claude/skills/council/scripts/council.py` and `skills/council/scripts/council.py` share the same underlying script, but there is no mechanism or documentation for keeping them in sync (e.g., a symlink strategy or a CI check).
-- **OpenRouter support in skills:** The skill files (`.claude/commands/council.md`, `skills/council/SKILL.md`) document Bedrock and Poe models but do not mention OpenRouter as a provider option in the config mode instructions, even though the core library supports it.
+- ~~**OpenRouter support in skills:** The skill files (`.claude/commands/council.md`, `skills/council/SKILL.md`) document Bedrock and Poe models but do not mention OpenRouter as a provider option in the config mode instructions, even though the core library supports it.~~ **RESOLVED** — OpenRouter added to both skill files with model examples, config examples, and parameter tables.
 - **Plugin metadata:** `.claude/skills/council/.claude-plugin/` contains `marketplace.json` and `plugin.json` but these files are not documented anywhere — their purpose, schema, and how to update them is unclear.
 
 **Why it matters:** Skill-based usage is the primary interaction mode for most users. Gaps in skill documentation directly impact the majority of the user base.
@@ -131,9 +131,11 @@ Alternatively, [Sphinx](https://www.sphinx-doc.org/) with `autodoc` and the `nap
 
 ---
 
-## 5. Troubleshooting Guide
+## ~~5. Troubleshooting Guide~~ **RESOLVED**
 
-**What's missing:** There is no dedicated troubleshooting guide covering common errors users encounter when running the council.
+**RESOLVED** — Created `docs/TROUBLESHOOTING.md` covering: missing API keys, AWS credentials, model not found, budget exceeded, timeout errors, stale cache, invalid config, ranking parse failures, circuit breaker behavior, and debugging tips.
+
+~~**What's missing:** There is no dedicated troubleshooting guide covering common errors users encounter when running the council.~~
 
 **Why it matters:** Users hitting errors often abandon tools rather than debugging them. A troubleshooting guide with clear symptoms, causes, and fixes dramatically reduces support burden and improves the onboarding experience.
 
