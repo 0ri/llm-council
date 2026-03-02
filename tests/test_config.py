@@ -28,10 +28,12 @@ class TestValidateConfig:
         errors = validate_config(config)
         assert any("non-empty" in e.lower() for e in errors)
 
-    def test_missing_chairman(self):
+    def test_missing_chairman_is_valid(self):
+        """Chairman is optional — omitting it enables auto-chairman mode."""
         config = {"council_models": [{"name": "X", "provider": "poe", "bot_name": "X"}]}
-        errors = validate_config(config)
-        assert any("chairman" in e for e in errors)
+        with patch.dict(os.environ, {"POE_API_KEY": "test-key"}):
+            errors = validate_config(config)
+        assert not any("chairman" in e for e in errors)
 
     def test_unknown_provider(self):
         config = {

@@ -83,7 +83,7 @@ def load_config(config_path: str | None = None) -> dict:
 def _print_dry_run(config: dict, question: str) -> None:
     """Print dry-run summary: models, query counts, budget limits."""
     council_models = config.get("council_models", [])
-    chairman = config.get("chairman", {})
+    chairman = config.get("chairman")
     n = len(council_models)
 
     print("=== Dry Run ===", file=sys.stderr)
@@ -91,7 +91,10 @@ def _print_dry_run(config: dict, question: str) -> None:
     print(f"\nCouncil models ({n}):", file=sys.stderr)
     for m in council_models:
         print(f"  - {m.get('name', '?')} ({m.get('provider', '?')})", file=sys.stderr)
-    print(f"Chairman: {chairman.get('name', '?')} ({chairman.get('provider', '?')})", file=sys.stderr)
+    if chairman:
+        print(f"Chairman: {chairman.get('name', '?')} ({chairman.get('provider', '?')})", file=sys.stderr)
+    else:
+        print("Chairman: auto (determined by Stage 2 rankings)", file=sys.stderr)
 
     # Estimate query counts
     stage1_queries = n

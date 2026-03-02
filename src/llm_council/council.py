@@ -61,8 +61,6 @@ def validate_config(config: dict) -> list[str]:
             if error["type"] == "missing":
                 if loc == "council_models":
                     errors.append("Config missing 'council_models' list")
-                elif loc == "chairman":
-                    errors.append("Config missing 'chairman' entry")
                 else:
                     errors.append(f"Missing required field: {loc}")
             elif error["type"] in ["list_min_length", "too_short"] and "council_models" in loc:
@@ -100,7 +98,7 @@ def validate_config(config: dict) -> list[str]:
 
     # --- Check for missing name fields (union dispatch can mask this) ---
     all_models = list(config.get("council_models", []))
-    if "chairman" in config:
+    if config.get("chairman"):
         all_models.append(config["chairman"])
     for i, model in enumerate(all_models):
         if "name" not in model:
@@ -108,13 +106,14 @@ def validate_config(config: dict) -> list[str]:
 
     # --- Environment variable checks (Pydantic can't do these) ---
     poe_models = [m for m in config.get("council_models", []) if m.get("provider") == "poe"]
-    if config.get("chairman", {}).get("provider") == "poe":
+    chairman_cfg = config.get("chairman") or {}
+    if chairman_cfg.get("provider") == "poe":
         poe_models.append(config["chairman"])
     if poe_models and not os.environ.get("POE_API_KEY"):
         errors.append("POE_API_KEY environment variable required for Poe provider models")
 
     or_models = [m for m in config.get("council_models", []) if m.get("provider") == "openrouter"]
-    if config.get("chairman", {}).get("provider") == "openrouter":
+    if chairman_cfg.get("provider") == "openrouter":
         or_models.append(config["chairman"])
     if or_models and not os.environ.get("OPENROUTER_API_KEY"):
         errors.append("OPENROUTER_API_KEY environment variable required for OpenRouter provider models")
@@ -215,6 +214,7 @@ async def run_council(
     validated = CouncilConfig(**config)
     council_models = list(validated.council_models)
     chairman_config_typed = validated.chairman
+    auto_chairman = chairman_config_typed is None
 
     # Create the per-run context
     if context_factory:
@@ -344,6 +344,14 @@ async def run_council(
                 for label, result in zip(labels, stage1_results, strict=True):
                     label_to_model[label] = result.model
 
+            # Resolve chairman: auto-select #1 ranked model if not configured
+            if auto_chairman:
+                if not aggregate_rankings:
+                    return "Error: No aggregate rankings available to select auto-chairman."
+                top_model_name = aggregate_rankings[0].model
+                chairman_config_typed = next(m for m in council_models if m.name == top_model_name)
+                logger.info(f"Auto-chairman: selected {top_model_name} (#1 ranked)")
+
             logger.info("Stage 3: Chairman synthesizing final answer...")
             stage3_result, stage3_token_usage = await stage3_synthesize_final(
                 question,
@@ -356,6 +364,25 @@ async def run_council(
                 stream=stream,
                 on_chunk=on_chunk,
             )
+
+            # Fallback: if explicit chairman failed, try #1 ranked model
+            if not auto_chairman and stage3_result.response.startswith("Error:") and aggregate_rankings:
+                fallback_name = aggregate_rankings[0].model
+                fallback_config = next((m for m in council_models if m.name == fallback_name), None)
+                if fallback_config and fallback_name != chairman_config_typed.name:
+                    logger.warning(f"Chairman failed, falling back to #1 ranked: {fallback_name}")
+                    stage3_result, stage3_token_usage = await stage3_synthesize_final(
+                        question,
+                        stage1_results,
+                        stage2_results,
+                        label_to_model,
+                        aggregate_rankings,
+                        fallback_config,
+                        ctx,
+                        stream=stream,
+                        on_chunk=on_chunk,
+                    )
+                    chairman_config_typed = fallback_config
 
             logger.info("Stage 3 complete!")
 
@@ -388,6 +415,8 @@ async def run_council(
                 total_ballots=total_ballots,
                 elapsed_seconds=total_elapsed,
                 estimated_tokens=ctx.cost_tracker.total_tokens,
+                chairman_auto=auto_chairman,
+                actual_chairman=chairman_config_typed.name if chairman_config_typed else "unknown",
             )
             manifest.run_id = run_id
 

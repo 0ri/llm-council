@@ -178,7 +178,7 @@ class CouncilConfig(BaseModel):
     """
 
     council_models: list[ModelConfig] = Field(min_length=1)
-    chairman: ModelConfig
+    chairman: ModelConfig | None = None
     budget: BudgetConfig | None = None
     prompts: PromptConfig | None = None
     cache_ttl: int = 86400

@@ -25,6 +25,7 @@ class RunManifest:
     question: str  # (truncated to 200 chars)
     models: list[str]  # model names
     chairman: str
+    chairman_auto: bool  # True if chairman was auto-selected from rankings
     stage1_results: int  # count of successful responses
     stage2_valid_ballots: int
     stage2_total_ballots: int
@@ -42,6 +43,8 @@ class RunManifest:
         total_ballots: int,
         elapsed_seconds: float,
         estimated_tokens: int,
+        chairman_auto: bool = False,
+        actual_chairman: str | None = None,
     ) -> RunManifest:
         """Create a new RunManifest from council execution data."""
         # Generate unique run ID
@@ -55,7 +58,12 @@ class RunManifest:
 
         # Extract model names
         models = [m.get("name", "unknown") for m in config.get("council_models", [])]
-        chairman = config.get("chairman", {}).get("name", "unknown")
+        if actual_chairman:
+            chairman = actual_chairman
+        elif config.get("chairman"):
+            chairman = config["chairman"].get("name", "unknown")
+        else:
+            chairman = "auto (pending)"
 
         # Generate config hash
         config_json = json.dumps(config, sort_keys=True)
@@ -67,6 +75,7 @@ class RunManifest:
             question=truncated_question,
             models=models,
             chairman=chairman,
+            chairman_auto=chairman_auto,
             stage1_results=stage1_count,
             stage2_valid_ballots=valid_ballots,
             stage2_total_ballots=total_ballots,
@@ -87,7 +96,7 @@ class RunManifest:
             f"Run ID: {self.run_id}",
             f"Timestamp: {self.timestamp}",
             f"Models: {', '.join(self.models)}",
-            f"Chairman: {self.chairman}",
+            f"Chairman: {self.chairman}{' (auto)' if self.chairman_auto else ''}",
             f"Stage 1 Results: {self.stage1_results}/{len(self.models)}",
             f"Stage 2 Ballots: {self.stage2_valid_ballots}/{self.stage2_total_ballots} valid",
             f"Total Time: {self.total_elapsed_seconds:.1f}s",
