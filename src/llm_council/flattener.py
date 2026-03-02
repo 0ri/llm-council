@@ -125,10 +125,29 @@ class FlattenedProject:
     markdown: str
 
 
+# Extensions that mimetypes may misidentify but are definitely text/code
+_TEXT_EXTENSIONS = frozenset(
+    {
+        ".ts",
+        ".tsx",
+        ".jsx",
+        ".mts",
+        ".cts",
+        ".vue",
+        ".svelte",
+        ".astro",
+    }
+)
+
+
 def _is_binary(path: Path) -> bool:
     """Check if a file is likely binary."""
-    if path.suffix.lower() in BINARY_EXTENSIONS:
+    suffix = path.suffix.lower()
+    if suffix in BINARY_EXTENSIONS:
         return True
+    # Known text/code extensions that mimetypes misidentifies (e.g. .ts → video/mp2t)
+    if suffix in _TEXT_EXTENSIONS:
+        return False
     mime, _ = mimetypes.guess_type(str(path))
     if (
         mime
