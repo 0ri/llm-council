@@ -24,7 +24,7 @@ LLM Council runs multi-model deliberation with anonymized peer review. It querie
 
 1. **Stage 1**: All council models answer the question independently
 2. **Stage 2**: Models rank responses using anonymous labels (Response A/B/C)
-3. **Stage 3**: Chairman synthesizes final answer based on rankings
+3. **Stage 3**: Chairman synthesizes final answer based on rankings (auto-selected from #1 ranked model if not configured, with fallback on failure)
 
 ### Provider Strategy
 
@@ -67,7 +67,7 @@ skills/council/             # OpenClaw skill (symlinks to shared script/config)
 
 ## Configuration
 
-Edit `.claude/council-config.json` to change models. The default config uses OpenRouter for all models:
+Edit `.claude/council-config.json` to change models. The `chairman` field is optional — if omitted, the #1 ranked model from Stage 2 is automatically selected as chairman. The default config uses OpenRouter for all models:
 
 ```json
 {

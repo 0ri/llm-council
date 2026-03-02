@@ -11,7 +11,7 @@ metadata: {"openclaw": {"emoji": "🏛️", "requires": {"bins": ["uv", "python3
 Query a council of LLMs that deliberate through 3 stages:
 1. **Stage 1**: All models answer the question independently
 2. **Stage 2**: Models anonymously rank each other's responses (Response A/B/C)
-3. **Stage 3**: Chairman synthesizes the best answer based on rankings
+3. **Stage 3**: Chairman synthesizes the best answer based on rankings (auto-selected from #1 ranked model if not configured)
 
 The anonymization prevents models from playing favorites with their own family or against competitors.
 
@@ -58,7 +58,7 @@ The output will include:
    - Grok-4
    - Plus hundreds of other models and community bots
 
-3. **Ask which model should be chairman** (single select from the chosen council models)
+3. **Ask which model should be chairman** (single select from the chosen council models, or leave blank for auto-select — the #1 ranked model from Stage 2 will be used)
 
 4. **Ask about enhanced parameters** for selected models:
    - For OpenRouter Claude models: reasoning_max_tokens, max_tokens

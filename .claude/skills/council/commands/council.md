@@ -8,7 +8,7 @@ argument-hint: Question to ask the council, or --config to configure models
 Query a council of LLMs that deliberate through 3 stages:
 1. **Stage 1**: All models answer the question independently
 2. **Stage 2**: Models anonymously rank each other's responses (Response A/B/C)
-3. **Stage 3**: Chairman synthesizes the best answer based on rankings
+3. **Stage 3**: Chairman synthesizes the best answer based on rankings (auto-selected from #1 ranked model if not configured)
 
 The anonymization prevents models from playing favorites.
 
@@ -51,7 +51,7 @@ Return the complete markdown output to display to the user."
 
 1. **Use AskUserQuestion** to let user configure:
    - Which models to include in the council (multi-select)
-   - Which model should be chairman
+   - Which model should be chairman (or leave blank for auto-select from #1 ranked model)
 
 2. **Available models**:
 

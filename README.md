@@ -9,13 +9,13 @@ Multi-model LLM deliberation with anonymized peer review. Available as a Claude 
 
 ## What It Does
 
-LLM Council queries multiple language models in parallel, has them anonymously rank each other's responses, and synthesizes a final answer from the top-ranked contributions. Each model evaluates shuffled, label-anonymized responses (Response A/B/C) so no model knows which peer produced which answer. A designated chairman then reads the aggregate rankings and writes the synthesis.
+LLM Council queries multiple language models in parallel, has them anonymously rank each other's responses, and synthesizes a final answer from the top-ranked contributions. Each model evaluates shuffled, label-anonymized responses (Response A/B/C) so no model knows which peer produced which answer. A chairman model then reads the aggregate rankings and writes the synthesis. The chairman can be explicitly configured or automatically selected from the #1 ranked model.
 
 **3-Stage Pipeline:**
 
 1. **Stage 1 — Independent responses:** Every council model answers the question in parallel.
 2. **Stage 2 — Anonymized peer ranking:** Each model ranks the other responses using randomized anonymous labels and nonce-fenced XML, preventing favoritism.
-3. **Stage 3 — Chairman synthesis:** A chairman model receives the ranked results and produces the final consolidated answer.
+3. **Stage 3 — Chairman synthesis:** A chairman model receives the ranked results and produces the final consolidated answer. The chairman can be explicitly configured or auto-selected as the #1 ranked model from Stage 2.
 
 **Supported Providers:**
 
@@ -249,7 +249,7 @@ Which models should be in the council?
   [x] Gemini-3.1-Pro (Poe)
   [ ] Grok-4 (Poe)
 
-Which model should be chairman?
+Which model should be chairman? (leave blank for auto-select from rankings)
   > Gemini-3.1-Pro
 
 Configure enhanced parameters?
@@ -504,7 +504,7 @@ The first file found wins. Use `--config path/to/config.json` to override the se
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `council_models` | `list[ModelConfig]` | *(required, min 1)* | List of models that participate in Stage 1 (responses) and Stage 2 (rankings). Each entry is a provider-specific model config object. |
-| `chairman` | `ModelConfig` | *(required)* | The model that performs Stage 3 synthesis. Can be one of the council models or a separate model. |
+| `chairman` | `ModelConfig \| null` | `null` (auto) | The model that performs Stage 3 synthesis. Can be one of the council models or a separate model. **If omitted, the #1 ranked model from Stage 2 is automatically selected as chairman** (auto-chairman mode). If an explicit chairman fails, the #1 ranked model is used as fallback. |
 | `budget` | `object` | `{}` (no limits) | Optional budget controls. See [Budget Fields](#budget-fields) below. |
 | `cache_ttl` | `int` | `86400` (24 hours) | Time-to-live in seconds for cached Stage 1 responses. Overridden by `--cache-ttl` CLI flag. |
 | `soft_timeout` | `float` | `300` (5 minutes) | Seconds to wait for parallel Stage 1 queries before proceeding with partial results (if `min_responses` is satisfied). |
@@ -631,6 +631,34 @@ Combines AWS Bedrock and Poe providers — requires AWS credentials and `POE_API
   "soft_timeout": 120
 }
 ```
+
+#### Auto-Chairman (No Explicit Chairman)
+
+When `chairman` is omitted, the #1 ranked model from Stage 2 automatically becomes chairman for Stage 3 synthesis. This is useful when you want the council's peer review to determine the best synthesizer:
+
+```json
+{
+  "council_models": [
+    {
+      "name": "Claude Sonnet 4",
+      "provider": "openrouter",
+      "model_id": "anthropic/claude-sonnet-4"
+    },
+    {
+      "name": "GPT-4o",
+      "provider": "openrouter",
+      "model_id": "openai/gpt-4o"
+    },
+    {
+      "name": "Gemini 2.5 Pro",
+      "provider": "openrouter",
+      "model_id": "google/gemini-2.5-pro-preview"
+    }
+  ]
+}
+```
+
+In auto-chairman mode, `--dry-run` shows `Chairman: auto (determined by Stage 2 rankings)` and the run manifest marks the chairman with `(auto)`.
 
 #### Config with Budget Limits
 
@@ -1034,7 +1062,7 @@ Manifest fields:
 | `Run ID` | UUID v4 uniquely identifying this run |
 | `Timestamp` | ISO 8601 UTC timestamp of when the run started |
 | `Models` | Comma-separated list of all council model names |
-| `Chairman` | The model designated to write the synthesis |
+| `Chairman` | The model designated to write the synthesis. Shows `(auto)` suffix when auto-selected from Stage 2 rankings |
 | `Stage 1 Results` | Successful responses out of total models queried |
 | `Stage 2 Ballots` | Valid ranking ballots out of total ballots received |
 | `Total Time` | Wall-clock elapsed time for the entire run |
