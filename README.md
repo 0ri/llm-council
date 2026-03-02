@@ -316,8 +316,8 @@ graph LR
     style S1 fill:#e8f4fd,stroke:#4a90d9,stroke-width:2px
     style S2 fill:#fff3e0,stroke:#f5a623,stroke-width:2px
     style S3 fill:#e8f5e9,stroke:#4caf50,stroke-width:2px
-    style Q fill:#7c4dff,color:#fff,stroke:#7c4dff
-    style R fill:#4caf50,color:#fff,stroke:#4caf50
+    style Q fill:#7c4dff,color:#000,stroke:#7c4dff
+    style R fill:#4caf50,color:#000,stroke:#4caf50
     style AN fill:#fff8e1,stroke:#f5a623
     style AGG fill:#c8e6c9,stroke:#388e3c
     style CH fill:#c8e6c9,stroke:#388e3c
