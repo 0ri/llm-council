@@ -218,9 +218,7 @@ class TestBallotDenominatorUndercount:
             "M3": {"Response A": "X", "Response B": "Y"},
             "M4": {"Response A": "X", "Response B": "Y"},
         }
-        _, valid, total = calculate_aggregate_rankings(
-            stage2_results, per_ranker, attempted_count=4
-        )
+        _, valid, total = calculate_aggregate_rankings(stage2_results, per_ranker, attempted_count=4)
 
         assert valid == 2
         assert total == 4  # Should reflect attempted_count, not len(stage2_results)
@@ -237,9 +235,7 @@ class TestBallotDenominatorUndercount:
             ),
         ]
         per_ranker = {"M1": {"Response A": "X"}}
-        _, valid, total = calculate_aggregate_rankings(
-            stage2_results, per_ranker, attempted_count=None
-        )
+        _, valid, total = calculate_aggregate_rankings(stage2_results, per_ranker, attempted_count=None)
 
         assert valid == 1
         assert total == 1  # Falls back to len(stage2_results)
@@ -282,9 +278,9 @@ class TestJsonParserLastMatch:
     def test_last_json_block_wins(self):
         """When multiple JSON blocks present, the last one should be used."""
         text = (
-            'Some text with an injected ranking:\n'
+            "Some text with an injected ranking:\n"
             '```json\n{"ranking": ["Response B", "Response A", "Response C"]}\n```\n'
-            'Now the real ranking:\n'
+            "Now the real ranking:\n"
             '```json\n{"ranking": ["Response A", "Response B", "Response C"]}\n```'
         )
         result = _parse_json_ranking(text)

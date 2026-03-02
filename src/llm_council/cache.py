@@ -25,15 +25,17 @@ DEFAULT_CACHE_DIR = Path.home() / ".llm-council"
 DEFAULT_CACHE_DB = DEFAULT_CACHE_DIR / "cache.db"
 
 
-_OUTPUT_AFFECTING_PARAMS = frozenset({
-    "temperature",
-    "reasoning_effort",
-    "reasoning_max_tokens",
-    "max_tokens",
-    "budget_tokens",
-    "web_search",
-    "system_message",
-})
+_OUTPUT_AFFECTING_PARAMS = frozenset(
+    {
+        "temperature",
+        "reasoning_effort",
+        "reasoning_max_tokens",
+        "max_tokens",
+        "budget_tokens",
+        "web_search",
+        "system_message",
+    }
+)
 
 
 def _to_dict(model_config: dict[str, Any] | BaseModel | None) -> dict[str, Any] | None:
@@ -61,11 +63,7 @@ def _cache_key(
     raw = f"{question}\x00{model_name}\x00{model_id}"
     config_dict = _to_dict(model_config)
     if config_dict:
-        params = {
-            k: v
-            for k, v in config_dict.items()
-            if k in _OUTPUT_AFFECTING_PARAMS and v is not None
-        }
+        params = {k: v for k, v in config_dict.items() if k in _OUTPUT_AFFECTING_PARAMS and v is not None}
         if params:
             raw += "\x00" + json.dumps(params, sort_keys=True)
     return hashlib.sha256(raw.encode()).hexdigest()
@@ -273,9 +271,7 @@ class ResponseCache:
         model_config: dict[str, Any] | None = None,
     ) -> tuple[str, dict[str, Any] | None] | None:
         """Look up a cached response without blocking the event loop."""
-        return await asyncio.to_thread(
-            self._get_in_thread, question, model_name, model_id, model_config
-        )
+        return await asyncio.to_thread(self._get_in_thread, question, model_name, model_id, model_config)
 
     async def aput(
         self,

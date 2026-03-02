@@ -33,6 +33,7 @@ class ProviderRequest:
     system_message: str | None = None
     suppress_provider_flags: bool = False
 
+
 # Configurable defaults
 DEFAULT_REGION = "us-east-1"
 DEFAULT_MAX_TOKENS = 16384

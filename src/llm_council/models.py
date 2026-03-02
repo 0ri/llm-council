@@ -191,16 +191,11 @@ class CouncilConfig(BaseModel):
     @model_validator(mode="after")
     def _validate_council_models(self) -> CouncilConfig:
         if len(self.council_models) > 26:
-            raise ValueError(
-                "Council supports a maximum of 26 models (Response A-Z), "
-                f"got {len(self.council_models)}"
-            )
+            raise ValueError(f"Council supports a maximum of 26 models (Response A-Z), got {len(self.council_models)}")
         names = [m.name for m in self.council_models]
         duplicates = sorted({n for n in names if names.count(n) > 1})
         if duplicates:
-            raise ValueError(
-                f"Duplicate model names in council_models: {', '.join(duplicates)}"
-            )
+            raise ValueError(f"Duplicate model names in council_models: {', '.join(duplicates)}")
         return self
 
 

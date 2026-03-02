@@ -51,7 +51,8 @@ def load_config(config_path: str | None = None) -> dict:
 
     if config_path is None or not os.path.exists(config_path):
         searched = "\n".join(
-            f"  - {p}" for p in [
+            f"  - {p}"
+            for p in [
                 os.path.join(os.getcwd(), ".claude", "council-config.json"),
                 os.path.expanduser("~/.claude/council-config.json"),
             ]

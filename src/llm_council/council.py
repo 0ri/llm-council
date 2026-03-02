@@ -224,6 +224,7 @@ async def run_council(
 
         # Load custom prompt templates from config if present
         from .models import PromptConfig
+
         prompt_config = None
         if "prompts" in config:
             prompt_config = PromptConfig(**config["prompts"])
