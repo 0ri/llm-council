@@ -55,6 +55,13 @@ Return the complete markdown output to display to the user."
 
 2. **Available models**:
 
+   **OpenRouter** (hundreds of models via single API key — requires OPENROUTER_API_KEY):
+   - `anthropic/claude-opus-4.6`, `anthropic/claude-sonnet-4`
+   - `openai/gpt-5.3-codex`, `openai/gpt-4o`
+   - `google/gemini-3.1-pro-preview`, `google/gemini-2.5-pro-preview`
+   - `x-ai/grok-4`
+   - Plus hundreds more (use `llm-council --list-models` to discover)
+
    **Bedrock** (any model in your region — requires AWS credentials):
    - Claude Opus 4.6 (`us.anthropic.claude-opus-4-6-v1:0`)
    - Claude Sonnet 4 (`us.anthropic.claude-sonnet-4-20250514-v1:0`)
@@ -74,21 +81,27 @@ Return the complete markdown output to display to the user."
 
 Location: `.claude/council-config.json`
 
+Default config (all OpenRouter):
+
 ```json
 {
   "council_models": [
-    {"name": "Claude Opus 4.6", "provider": "bedrock", "model_id": "us.anthropic.claude-opus-4-6-v1:0"},
-    {"name": "GPT-5.3-Codex", "provider": "poe", "bot_name": "GPT-5.3-Codex"},
-    {"name": "Gemini-3.1-Pro", "provider": "poe", "bot_name": "Gemini-3.1-Pro"},
-    {"name": "Grok-4", "provider": "poe", "bot_name": "Grok-4"}
+    {"name": "Claude Opus 4.6", "provider": "openrouter", "model_id": "anthropic/claude-opus-4.6", "reasoning_max_tokens": 16000, "max_tokens": 32000},
+    {"name": "GPT-5.3-Codex", "provider": "openrouter", "model_id": "openai/gpt-5.3-codex", "reasoning_effort": "high", "max_tokens": 32000},
+    {"name": "Gemini-3.1-Pro", "provider": "openrouter", "model_id": "google/gemini-3.1-pro-preview", "reasoning_effort": "high", "max_tokens": 32000},
+    {"name": "Grok 4", "provider": "openrouter", "model_id": "x-ai/grok-4", "reasoning_effort": "high", "max_tokens": 32000}
   ],
   "chairman": {
     "name": "Claude Opus 4.6",
-    "provider": "bedrock",
-    "model_id": "us.anthropic.claude-opus-4-6-v1:0"
+    "provider": "openrouter",
+    "model_id": "anthropic/claude-opus-4.6",
+    "reasoning_max_tokens": 16000,
+    "max_tokens": 32000
   }
 }
 ```
+
+Bedrock and Poe models can also be used. See the README for alternative config examples.
 
 ## Output Format
 
@@ -119,8 +132,11 @@ The council returns a markdown summary:
 
 ## Requirements
 
-- **AWS credentials** configured for Bedrock access (Claude models)
-- **POE_API_KEY** environment variable for Poe.com models (GPT, Gemini, Grok)
+- **OPENROUTER_API_KEY** environment variable for OpenRouter models (default config)
+- **POE_API_KEY** environment variable for Poe.com models (if using Poe provider)
+- **AWS credentials** configured for Bedrock access (if using Bedrock provider)
+
+You only need keys for providers in your config.
 
 ## Error Handling
 

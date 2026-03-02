@@ -3,7 +3,7 @@ name: council
 description: Multi-model LLM council with anonymized peer review
 user-invocable: true
 homepage: https://github.com/0ri/llm-council
-metadata: {"openclaw": {"emoji": "🏛️", "requires": {"bins": ["uv", "python3"], "env": ["POE_API_KEY"]}, "primaryEnv": "POE_API_KEY", "install": [{"id": "uv", "kind": "brew", "formula": "uv", "bins": ["uv"], "label": "Install uv (brew)"}]}}
+metadata: {"openclaw": {"emoji": "🏛️", "requires": {"bins": ["uv", "python3"], "env": ["OPENROUTER_API_KEY"]}, "primaryEnv": "OPENROUTER_API_KEY", "install": [{"id": "uv", "kind": "brew", "formula": "uv", "bins": ["uv"], "label": "Install uv (brew)"}]}}
 ---
 
 # LLM Council
@@ -40,6 +40,13 @@ The output will include:
 
 2. **Ask the user which models to include** in the council (multi-select):
 
+   **OpenRouter** (hundreds of models via single API key — requires OPENROUTER_API_KEY):
+   - `anthropic/claude-opus-4.6`, `anthropic/claude-sonnet-4` - supports reasoning_max_tokens
+   - `openai/gpt-5.3-codex`, `openai/gpt-4o` - supports reasoning_effort
+   - `google/gemini-3.1-pro-preview` - supports reasoning_effort
+   - `x-ai/grok-4` - supports reasoning_effort
+   - Plus hundreds more (use `llm-council --list-models` to discover)
+
    **Bedrock** (any model in your region — requires AWS credentials):
    - Claude Opus 4.6 (`us.anthropic.claude-opus-4-6-v1:0`) - supports budget_tokens
    - Claude Sonnet 4 (`us.anthropic.claude-sonnet-4-20250514-v1:0`)
@@ -54,9 +61,11 @@ The output will include:
 3. **Ask which model should be chairman** (single select from the chosen council models)
 
 4. **Ask about enhanced parameters** for selected models:
-   - For Claude models: budget_tokens (e.g., 10000 for extended thinking)
-   - For GPT models: web_search (true/false), reasoning_effort (medium/high/Xhigh)
-   - For Gemini models: web_search (true/false), reasoning_effort (minimal/low/high; sent as thinking_level)
+   - For OpenRouter Claude models: reasoning_max_tokens, max_tokens
+   - For OpenRouter GPT/Gemini/Grok models: reasoning_effort (minimal/low/medium/high/xhigh), max_tokens
+   - For Bedrock Claude models: budget_tokens (e.g., 10000 for extended thinking)
+   - For Poe GPT models: web_search (true/false), reasoning_effort (medium/high/Xhigh)
+   - For Poe Gemini models: web_search (true/false), reasoning_effort (minimal/low/high; sent as thinking_level)
 
 5. **Save the configuration** to `{baseDir}/config/council-config.json` with this format:
 
@@ -65,34 +74,44 @@ The output will include:
   "council_models": [
     {
       "name": "Claude Opus 4.6",
-      "provider": "bedrock",
-      "model_id": "us.anthropic.claude-opus-4-6-v1:0",
-      "budget_tokens": 10000
+      "provider": "openrouter",
+      "model_id": "anthropic/claude-opus-4.6",
+      "reasoning_max_tokens": 16000,
+      "max_tokens": 32000
     },
     {
       "name": "GPT-5.3-Codex",
-      "provider": "poe",
-      "bot_name": "GPT-5.3-Codex",
-      "web_search": true,
-      "reasoning_effort": "high"
+      "provider": "openrouter",
+      "model_id": "openai/gpt-5.3-codex",
+      "reasoning_effort": "high",
+      "max_tokens": 32000
     },
     {
       "name": "Gemini-3.1-Pro",
-      "provider": "poe",
-      "bot_name": "Gemini-3.1-Pro",
-      "web_search": true,
-      "reasoning_effort": "high"
+      "provider": "openrouter",
+      "model_id": "google/gemini-3.1-pro-preview",
+      "reasoning_effort": "high",
+      "max_tokens": 32000
     },
-    {"name": "Grok-4", "provider": "poe", "bot_name": "Grok-4"}
+    {
+      "name": "Grok 4",
+      "provider": "openrouter",
+      "model_id": "x-ai/grok-4",
+      "reasoning_effort": "high",
+      "max_tokens": 32000
+    }
   ],
   "chairman": {
     "name": "Claude Opus 4.6",
-    "provider": "bedrock",
-    "model_id": "us.anthropic.claude-opus-4-6-v1:0",
-    "budget_tokens": 10000
+    "provider": "openrouter",
+    "model_id": "anthropic/claude-opus-4.6",
+    "reasoning_max_tokens": 16000,
+    "max_tokens": 32000
   }
 }
 ```
+
+Bedrock and Poe models can also be used. See the project README for alternative config examples.
 
 6. **Confirm** the configuration was saved successfully
 
@@ -127,15 +146,23 @@ The council returns a markdown summary with:
 
 | Provider | Parameter | Description |
 |----------|-----------|-------------|
-| Bedrock | `budget_tokens` | Extended thinking token budget (e.g., 10000) |
+| OpenRouter | `model_id` | OpenRouter model ID (e.g., `anthropic/claude-opus-4.6`) |
+| OpenRouter | `reasoning_effort` | `minimal` / `low` / `medium` / `high` / `xhigh` |
+| OpenRouter | `reasoning_max_tokens` | Token budget for reasoning (Anthropic, Qwen models) |
+| OpenRouter | `max_tokens` | Max output tokens |
+| OpenRouter | `temperature` | Sampling temperature (0.0-2.0) |
+| Bedrock | `budget_tokens` | Extended thinking token budget (1024-128000) |
 | Poe | `web_search` | Enable web search (true/false) |
 | Poe | `reasoning_effort` | GPT: "medium"/"high"/"Xhigh", Gemini: "minimal"/"low"/"high" |
 
 ## Requirements
 
-- **AWS credentials** must be configured for Bedrock access (Claude models)
-- **POE_API_KEY** environment variable required for Poe.com models (GPT, Gemini, Grok)
+- **OPENROUTER_API_KEY** environment variable for OpenRouter models (default config)
   - This is injected by OpenClaw via skill configuration
+- **POE_API_KEY** environment variable for Poe.com models (if using Poe provider)
+- **AWS credentials** for Bedrock models (if using Bedrock provider)
+
+You only need keys for providers in your config.
 
 ## Error Handling
 

@@ -26,11 +26,13 @@ LLM Council runs multi-model deliberation with anonymized peer review. It querie
 2. **Stage 2**: Models rank responses using anonymous labels (Response A/B/C)
 3. **Stage 3**: Chairman synthesizes final answer based on rankings
 
-### Hybrid Provider Strategy
+### Provider Strategy
 
-- **Bedrock**: Claude Opus 4.6 (council member + chairman)
-- **Poe.com**: GPT-5.3-Codex, Gemini-3.1-Pro, Grok-4
-- **OpenRouter**: Any model via OpenAI-compatible API (real token usage reporting)
+The default config uses **OpenRouter** for all models (single API key, real token usage reporting). Alternative providers:
+
+- **AWS Bedrock**: Native AWS auth, extended thinking via `budget_tokens`
+- **Poe.com**: Single API key covers GPT, Gemini, Grok, and community bots
+- **OpenRouter**: OpenAI-compatible API, model discovery via `--list-models`
 
 ### Provider Abstraction
 
@@ -38,100 +40,78 @@ Providers (Bedrock, Poe, OpenRouter) are implemented as classes behind a common 
 
 ### Key Files
 
+See [Package Structure](README.md#package-structure) in the README for the full module listing. Core files:
+
 ```
-src/llm_council/                      # Main package
-├── __init__.py                       # Package initialization
-├── cli.py                            # CLI entry point
-├── council.py                        # Council orchestration
-├── stages.py                         # 3-stage deliberation logic
-├── providers/                        # Provider implementations
-│   ├── __init__.py
-│   ├── base.py                       # Provider protocol
-│   ├── bedrock.py                    # AWS Bedrock provider
-│   ├── poe.py                        # Poe.com provider
-│   └── openrouter.py                 # OpenRouter provider
-├── aggregation.py                    # Ranking aggregation algorithms
-├── flattener.py                      # Project directory flattener
-├── parsing.py                        # Response parsing utilities
-├── security.py                       # Injection hardening
-├── formatting.py                     # Output formatting
-├── progress.py                       # Progress visualization
-├── cost.py                           # Cost tracking
-└── models.py                         # Data models
+src/llm_council/
+├── cli.py                  # CLI entry point, argparse flags, config loading
+├── council.py              # Main orchestrator: validate_config, run_council
+├── stages.py               # 3-stage pipeline logic: collect, rank, synthesize
+├── models.py               # Pydantic config models and result types
+├── context.py              # Per-run dependency-injection container
+├── providers/              # Provider implementations (Bedrock, Poe, OpenRouter)
+├── aggregation.py          # Borda count, bootstrap confidence intervals
+├── budget.py               # Token and cost budget guards
+├── cache.py                # SQLite response cache for Stage 1
+├── security.py             # Input sanitization, injection detection, nonce fencing
+├── prompts.py              # Prompt templates for ranking and synthesis
+└── formatting.py           # Markdown output formatting
 
-tests/                                 # Test suite
-├── test_aggregation.py
-├── test_config.py
-├── test_council_integration.py
-├── test_parsing.py
-├── test_resilience.py
-└── test_security.py
+.claude/
+├── commands/council.md     # Claude Code skill command definition
+├── skills/council/scripts/council.py  # Skill wrapper script
+└── council-config.json     # Model configuration
 
-.claude/                              # Claude Code skill
-├── skills/council/
-│   ├── commands/
-│   │   └── council.md                # Skill command definition
-│   └── scripts/
-│       └── council.py                # Skill wrapper script
-└── council-config.json               # Model configuration
-
-skills/                               # OpenClaw skill
-└── council/
-    ├── SKILL.md                      # OpenClaw skill manifest
-    ├── scripts/
-    │   └── council.py → (symlink)    # Shared script
-    └── config/
-        └── council-config.json → (symlink)  # Shared config
+skills/council/             # OpenClaw skill (symlinks to shared script/config)
 ```
 
 ## Configuration
 
-Edit `.claude/council-config.json` to change models:
+Edit `.claude/council-config.json` to change models. The default config uses OpenRouter for all models:
 
 ```json
 {
   "council_models": [
     {
       "name": "Claude Opus 4.6",
-      "provider": "bedrock",
-      "model_id": "us.anthropic.claude-opus-4-6-v1:0",
-      "budget_tokens": 10000
+      "provider": "openrouter",
+      "model_id": "anthropic/claude-opus-4.6",
+      "reasoning_max_tokens": 16000,
+      "max_tokens": 32000
     },
     {
       "name": "GPT-5.3-Codex",
-      "provider": "poe",
-      "bot_name": "GPT-5.3-Codex",
-      "web_search": true,
-      "reasoning_effort": "high"
+      "provider": "openrouter",
+      "model_id": "openai/gpt-5.3-codex",
+      "reasoning_effort": "high",
+      "max_tokens": 32000
     },
     {
       "name": "Gemini-3.1-Pro",
-      "provider": "poe",
-      "bot_name": "Gemini-3.1-Pro",
-      "web_search": true,
-      "reasoning_effort": "high"
+      "provider": "openrouter",
+      "model_id": "google/gemini-3.1-pro-preview",
+      "reasoning_effort": "high",
+      "max_tokens": 32000
     },
-    {"name": "Grok-4", "provider": "poe", "bot_name": "Grok-4"}
+    {
+      "name": "Grok 4",
+      "provider": "openrouter",
+      "model_id": "x-ai/grok-4",
+      "reasoning_effort": "high",
+      "max_tokens": 32000
+    }
   ],
   "chairman": {
     "name": "Claude Opus 4.6",
-    "provider": "bedrock",
-    "model_id": "us.anthropic.claude-opus-4-6-v1:0",
-    "budget_tokens": 10000
+    "provider": "openrouter",
+    "model_id": "anthropic/claude-opus-4.6",
+    "reasoning_max_tokens": 16000,
+    "max_tokens": 32000
   }
 }
 ```
 
-### Enhanced Model Parameters
-
-| Provider | Parameter | Description |
-|----------|-----------|-------------|
-| Bedrock | `budget_tokens` | Extended thinking token budget (e.g., 10000) |
-| Poe | `web_search` | Enable web search (true/false) |
-| Poe | `reasoning_effort` | GPT: "medium"/"high"/"Xhigh", Gemini: "minimal"/"low"/"high" |
-| OpenRouter | `model_id` | OpenRouter model ID (e.g., "openai/gpt-4o") |
-| OpenRouter | `temperature` | Optional temperature (0.0-2.0) |
-| OpenRouter | `max_tokens` | Optional max output tokens |
+For the full configuration reference (all provider-specific fields, budget controls, cache settings, resilience tuning), see the [Configuration Reference](README.md#configuration-reference) in the README.
 
 ## Security
 
@@ -144,29 +124,11 @@ Edit `.claude/council-config.json` to change models:
 
 ## Requirements
 
-- **AWS credentials** configured for Bedrock (Claude models)
-- **POE_API_KEY** environment variable for Poe.com models
-- **OPENROUTER_API_KEY** environment variable for OpenRouter models
+- **OPENROUTER_API_KEY** for OpenRouter models (default config — single key covers all models)
+- **POE_API_KEY** for Poe.com models (if using Poe provider)
+- **AWS credentials** for Bedrock models (if using Bedrock provider)
 
-## Available Models
-
-Any model available on Bedrock, Poe.com, or OpenRouter can be used. Run `llm-council --list-models` to discover available models.
-
-### Bedrock
-Any model in your AWS Bedrock region (Anthropic, Meta, Mistral, Cohere, etc.). Examples:
-- `us.anthropic.claude-opus-4-6-v1:0` - Claude Opus 4.6 (supports extended thinking)
-- `us.anthropic.claude-sonnet-4-20250514-v1:0` - Claude Sonnet 4
-
-### Poe.com
-Any bot on Poe's API (hundreds of models including open-source). Examples:
-- `GPT-5.3-Codex`, `GPT-5.2` - supports web_search, reasoning_effort
-- `Gemini-3.1-Pro`, `Gemini-3-Flash` - supports web_search, reasoning_effort
-- `Grok-4`
-
-### OpenRouter
-Any model on OpenRouter's API (stable, OpenAI-compatible, real token usage). Examples:
-- `openai/gpt-4o`, `anthropic/claude-3.5-sonnet`, `google/gemini-pro`
-- `meta-llama/llama-3-70b`, `mistralai/mixtral-8x7b`
+You only need keys for the providers in your config. Run `llm-council --list-models` to discover available models. See the [README](README.md#available-models) for the full model list.
 
 ## Direct Usage
 
@@ -213,7 +175,7 @@ clawhub install council
 
 ### Configuration
 
-Set `POE_API_KEY` via OpenClaw's skill config injection:
+Set your API key via OpenClaw's skill config injection. The default config uses OpenRouter:
 
 ```json5
 {
@@ -221,25 +183,25 @@ Set `POE_API_KEY` via OpenClaw's skill config injection:
     entries: {
       council: {
         enabled: true,
-        apiKey: "YOUR_POE_API_KEY",
+        apiKey: "YOUR_OPENROUTER_API_KEY",
       },
     },
   },
 }
 ```
 
-AWS credentials for Bedrock should be configured via `aws configure` or environment variables as usual.
+For Poe models, set `POE_API_KEY` instead. For Bedrock, configure AWS credentials via `aws configure` or environment variables.
 
 ## Key Design Decisions
 
 ### Anonymized Peer Review
 Models receive "Response A", "Response B", etc. instead of model names. This prevents bias where models might favor their own family or disfavor competitors.
 
-### Hybrid Providers
-Bedrock for Anthropic models (already configured, no extra API key). Poe.com for others (single API key covers GPT, Gemini, Grok). OpenRouter as an alternative stable API with real token usage reporting.
+### Multi-Provider Support
+OpenRouter as default (single key, real token usage, broadest model access). Bedrock for direct AWS integration and extended thinking. Poe for access to community bots and web search augmentation.
 
 ### Subagent Execution
 The skill spawns a subagent to run the council, preserving the main conversation's context window.
 
 ### Graceful Degradation
-If a model fails, the council continues with remaining models rather than failing entirely.
+If a model fails, the council continues with remaining models rather than failing entirely. Circuit breakers skip consistently failing models. See [Troubleshooting](docs/TROUBLESHOOTING.md) for common errors and fixes.
