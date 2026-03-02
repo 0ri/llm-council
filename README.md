@@ -273,45 +273,66 @@ For the full command reference and execution details, see the actual skill files
 ### Pipeline Overview
 
 ```mermaid
-graph LR
-    Q["User Question"]
+flowchart TD
+    Q(["📝 User Question"])
 
-    subgraph Stage1["Stage 1: Independent Responses"]
-        B1["Bedrock"]
-        P1["Poe"]
-        O1["OpenRouter"]
+    subgraph S1["<b>Stage 1 — Independent Responses</b>"]
+        direction LR
+        M1["Model A<br/><i>e.g. Claude Opus</i>"]
+        M2["Model B<br/><i>e.g. GPT-5.3</i>"]
+        M3["Model C<br/><i>e.g. Gemini 3.1</i>"]
+        M4["Model D<br/><i>e.g. Grok 4</i>"]
     end
 
-    subgraph Stage2["Stage 2: Anonymized Peer Ranking"]
+    CACHE[("💾 Response<br/>Cache")]
+
+    subgraph S2["<b>Stage 2 — Anonymized Peer Ranking</b>"]
         direction TB
-        AN["Anonymizer<br/>(random labels, nonce XML fencing,<br/>per-ranker shuffled order)"]
-        B2["Bedrock ranks"]
-        P2["Poe ranks"]
-        O2["OpenRouter ranks"]
-        AN --> B2
-        AN --> P2
-        AN --> O2
+        ANON["🔀 <b>Anonymizer</b><br/>Random labels · Nonce-fenced XML<br/>Per-ranker shuffled order · Self-exclusion"]
+
+        subgraph RANK["Each model ranks the others"]
+            direction LR
+            R1["Model A<br/>ranks B,C,D"]
+            R2["Model B<br/>ranks A,C,D"]
+            R3["Model C<br/>ranks A,B,D"]
+            R4["Model D<br/>ranks A,B,C"]
+        end
+
+        ANON --> RANK
     end
 
-    subgraph Stage3["Stage 3: Chairman Synthesis"]
-        AGG["Aggregate Rankings<br/>(Borda count + bootstrap CI)"]
-        CH["Chairman Model"]
-        AGG --> CH
+    subgraph S3["<b>Stage 3 — Chairman Synthesis</b>"]
+        direction TB
+        AGG["📊 <b>Aggregate Rankings</b><br/>Borda count · Bootstrap 95% CI<br/>Ballot validation"]
+        SELECT{"Chairman<br/>configured?"}
+        EXPLICIT["Configured<br/>Chairman"]
+        AUTO["🏆 <b>Auto-Chairman</b><br/>#1 ranked model"]
+        SYNTH["✍️ <b>Synthesize</b><br/>Final consolidated answer"]
+
+        AGG --> SELECT
+        SELECT -- "Yes" --> EXPLICIT
+        SELECT -- "No" --> AUTO
+        EXPLICIT -- "fails" -.-> AUTO
+        EXPLICIT --> SYNTH
+        AUTO --> SYNTH
     end
 
-    Q --> B1
-    Q --> P1
-    Q --> O1
+    ANSWER(["📋 Final Answer<br/><i>Rankings + Synthesis + Manifest</i>"])
 
-    B1 --> AN
-    P1 --> AN
-    O1 --> AN
+    Q --> S1
+    S1 <-.-> CACHE
+    S1 --> ANON
+    RANK --> AGG
+    SYNTH --> ANSWER
 
-    B2 --> AGG
-    P2 --> AGG
-    O2 --> AGG
-
-    CH --> R["Final Answer"]
+    style S1 fill:#e8f4fd,stroke:#4a90d9,stroke-width:2px
+    style S2 fill:#fff3e0,stroke:#f5a623,stroke-width:2px
+    style S3 fill:#e8f5e9,stroke:#4caf50,stroke-width:2px
+    style RANK fill:#fff8e1,stroke:#f5a623,stroke-width:1px
+    style Q fill:#7c4dff,color:#fff,stroke:#7c4dff
+    style ANSWER fill:#4caf50,color:#fff,stroke:#4caf50
+    style CACHE fill:#f5f5f5,stroke:#999,stroke-dasharray: 5 5
+    style AUTO fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
 ```
 
 ### Stage Descriptions
