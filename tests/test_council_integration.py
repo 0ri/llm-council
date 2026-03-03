@@ -392,8 +392,10 @@ class TestRunCouncilIntegration:
         mock_rng = MagicMock()
         mock_rng.shuffle = lambda x: None
 
-        with patch.dict(os.environ, {"POE_API_KEY": "test-key"}), \
-             patch("llm_council.stages.random.Random", return_value=mock_rng):
+        with (
+            patch.dict(os.environ, {"POE_API_KEY": "test-key"}),
+            patch("llm_council.stages.random.Random", return_value=mock_rng),
+        ):
             result = await run_council(
                 "Chairman fallback test",
                 sample_config,
