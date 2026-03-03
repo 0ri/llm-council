@@ -59,6 +59,51 @@ def is_retryable_poe_error(exc: BaseException) -> bool:
     return True
 
 
+def _build_protocol_messages(
+    messages: list[dict[str, str]],
+    bot_name: str,
+    system_message: str | None,
+    web_search: bool,
+    reasoning_effort: str | None,
+) -> list:
+    """Build ProtocolMessage list from messages, applying Poe-specific flags."""
+    from fastapi_poe import ProtocolMessage
+
+    protocol_messages = []
+
+    if system_message:
+        protocol_messages.append(ProtocolMessage(role="system", content=system_message))
+
+    for i, msg in enumerate(messages):
+        role = msg["role"]
+        if role == "assistant":
+            role = "bot"
+
+        content = msg["content"]
+
+        # Add flags to the first user message
+        if i == 0 and role == "user":
+            flags = []
+            if web_search:
+                if "Gemini" in bot_name:
+                    flags.append("--web_search true")
+                else:
+                    flags.append("--web_search")
+
+            if reasoning_effort:
+                if "Gemini" in bot_name:
+                    flags.append(f"--thinking_level {reasoning_effort}")
+                else:
+                    flags.append(f"--reasoning_effort {reasoning_effort}")
+
+            if flags:
+                content = content + "\n\n" + " ".join(flags)
+
+        protocol_messages.append(ProtocolMessage(role=role, content=content))
+
+    return protocol_messages
+
+
 class PoeProvider:
     """Poe.com provider for GPT, Gemini, Grok models."""
 
@@ -80,7 +125,6 @@ class PoeProvider:
         from . import MAX_RETRIES
 
         model_config = coerce_model_config(model_config)
-        # Extract model-specific parameters (PoeModelConfig attributes)
         bot_name = model_config.bot_name
 
         # Use typed request if provided, fall back to legacy model_config keys
@@ -97,7 +141,6 @@ class PoeProvider:
         reasoning_effort = None if suppress_flags else getattr(model_config, "reasoning_effort", None)
 
         import fastapi_poe as fp
-        from fastapi_poe import ProtocolMessage
 
         @retry(
             stop=stop_after_attempt(MAX_RETRIES),
@@ -106,45 +149,10 @@ class PoeProvider:
             reraise=True,
         )
         async def _query_poe_inner() -> str:
-            # Convert messages to ProtocolMessage format
-            # Poe uses 'bot' instead of 'assistant' for the role
-            protocol_messages = []
+            protocol_messages = _build_protocol_messages(
+                messages, bot_name, system_message, web_search, reasoning_effort
+            )
 
-            # Add system message as first user message if provided
-            if system_message:
-                protocol_messages.append(ProtocolMessage(role="system", content=system_message))
-
-            for i, msg in enumerate(messages):
-                role = msg["role"]
-                if role == "assistant":
-                    role = "bot"
-
-                content = msg["content"]
-
-                # Add flags to the first user message
-                if i == 0 and role == "user":
-                    flags = []
-                    if web_search:
-                        # GPT uses --web_search, Gemini uses --web_search true
-                        if "Gemini" in bot_name:
-                            flags.append("--web_search true")
-                        else:
-                            flags.append("--web_search")
-
-                    if reasoning_effort:
-                        # GPT uses --reasoning_effort, Gemini uses --thinking_level
-                        if "Gemini" in bot_name:
-                            flags.append(f"--thinking_level {reasoning_effort}")
-                        else:
-                            flags.append(f"--reasoning_effort {reasoning_effort}")
-
-                    # Flags go at the END of the message for Poe bots
-                    if flags:
-                        content = content + "\n\n" + " ".join(flags)
-
-                protocol_messages.append(ProtocolMessage(role=role, content=content))
-
-            # Accumulate response chunks
             accumulated_text = ""
             async for partial in fp.get_bot_response(
                 messages=protocol_messages,
@@ -156,7 +164,6 @@ class PoeProvider:
             return accumulated_text
 
         result = await _query_poe_inner()
-        # Poe doesn't provide token counts, return None for usage
         return result, None
 
     def astream(
@@ -177,7 +184,6 @@ class PoeProvider:
         model_config = coerce_model_config(model_config)
         bot_name = model_config.bot_name
 
-        # Use typed request if provided, fall back to legacy model_config keys
         if request is not None:
             suppress_flags = request.suppress_provider_flags
             messages = request.messages
@@ -191,39 +197,11 @@ class PoeProvider:
         reasoning_effort = None if suppress_flags else getattr(model_config, "reasoning_effort", None)
 
         import fastapi_poe as fp
-        from fastapi_poe import ProtocolMessage
 
         async def _generate():
-            protocol_messages = []
-
-            if system_message:
-                protocol_messages.append(ProtocolMessage(role="system", content=system_message))
-
-            for i, msg in enumerate(messages):
-                role = msg["role"]
-                if role == "assistant":
-                    role = "bot"
-
-                content = msg["content"]
-
-                if i == 0 and role == "user":
-                    flags = []
-                    if web_search:
-                        if "Gemini" in bot_name:
-                            flags.append("--web_search true")
-                        else:
-                            flags.append("--web_search")
-
-                    if reasoning_effort:
-                        if "Gemini" in bot_name:
-                            flags.append(f"--thinking_level {reasoning_effort}")
-                        else:
-                            flags.append(f"--reasoning_effort {reasoning_effort}")
-
-                    if flags:
-                        content = content + "\n\n" + " ".join(flags)
-
-                protocol_messages.append(ProtocolMessage(role=role, content=content))
+            protocol_messages = _build_protocol_messages(
+                messages, bot_name, system_message, web_search, reasoning_effort
+            )
 
             async for partial in fp.get_bot_response(
                 messages=protocol_messages,
@@ -233,6 +211,5 @@ class PoeProvider:
                 yield partial.text
 
         result = StreamResult(_generate())
-        # Poe doesn't provide token counts
         result.usage = None
         return result
