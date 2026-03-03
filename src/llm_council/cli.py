@@ -15,8 +15,6 @@ import logging
 import os
 import sys
 
-from .council import run_council, validate_config
-
 logger = logging.getLogger("llm-council")
 
 
@@ -320,6 +318,8 @@ def main():
     config = load_config(args.config)
 
     # Validate config early for better error reporting
+    from .council import run_council, validate_config
+
     errors = validate_config(config)
     if errors:
         logger.error("Configuration errors:")

@@ -161,7 +161,7 @@ class TestMain:
         with patch("sys.argv", ["council.py", "What is 2+2?"]):
             with patch("llm_council.cli.asyncio.run") as mock_run:
                 with patch("llm_council.cli.load_config") as mock_load_config:
-                    with patch("llm_council.cli.validate_config", return_value=[]):
+                    with patch("llm_council.council.validate_config", return_value=[]):
                         mock_load_config.return_value = {"test": "config"}
                         mock_run.return_value = "Answer: 4"
 
@@ -180,7 +180,7 @@ class TestMain:
         try:
             with patch("sys.argv", ["council.py", "--config", temp_path, "Question?"]):
                 with patch("llm_council.cli.asyncio.run") as mock_run:
-                    with patch("llm_council.cli.validate_config", return_value=[]):
+                    with patch("llm_council.council.validate_config", return_value=[]):
                         mock_run.return_value = "Result"
 
                         with patch("builtins.print"):
@@ -200,7 +200,7 @@ class TestMain:
         with patch("sys.argv", ["council.py", "-v", "Question"]):
             with patch("llm_council.cli.setup_logging") as mock_setup:
                 with patch("llm_council.cli.asyncio.run"):
-                    with patch("llm_council.cli.validate_config", return_value=[]):
+                    with patch("llm_council.council.validate_config", return_value=[]):
                         with patch("builtins.print"):
                             main()
 
@@ -210,7 +210,7 @@ class TestMain:
         """Test main with --manifest flag."""
         with patch("sys.argv", ["council.py", "--manifest", "Question"]):
             with patch("llm_council.cli.asyncio.run") as mock_run:
-                with patch("llm_council.cli.validate_config", return_value=[]):
+                with patch("llm_council.council.validate_config", return_value=[]):
                     mock_run.return_value = "Result"
 
                     with patch("builtins.print"):
@@ -228,7 +228,7 @@ class TestMain:
         """Test main when config validation fails."""
         with patch("sys.argv", ["council.py", "Question"]):
             with patch("llm_council.cli.load_config") as mock_load:
-                with patch("llm_council.cli.validate_config") as mock_validate:
+                with patch("llm_council.council.validate_config") as mock_validate:
                     with patch("llm_council.cli.setup_logging"):
                         with patch("llm_council.cli.logger") as mock_logger:
                             mock_load.return_value = {"invalid": "config"}
@@ -254,7 +254,7 @@ class TestMain:
 
             with patch("sys.argv", ["council.py", "--config", config_path, "Question"]):
                 with patch("llm_council.cli.asyncio.run"):
-                    with patch("llm_council.cli.validate_config", return_value=[]):
+                    with patch("llm_council.council.validate_config", return_value=[]):
                         with patch("builtins.print"):
                             # Should handle path with spaces correctly
                             main()
@@ -269,7 +269,7 @@ class TestMain:
             with patch("sys.argv", ["council.py", "-v", "--config", temp_path, "--manifest", "Question"]):
                 with patch("llm_council.cli.setup_logging") as mock_setup:
                     with patch("llm_council.cli.asyncio.run"):
-                        with patch("llm_council.cli.validate_config", return_value=[]):
+                        with patch("llm_council.council.validate_config", return_value=[]):
                             with patch("builtins.print"):
                                 main()
 
@@ -293,7 +293,7 @@ class TestStageFlag:
         """Test --stage 1 passes max_stage=1 to run_council."""
         with patch("sys.argv", ["council.py", "--stage", "1", "Question"]):
             with patch("llm_council.cli.asyncio.run") as mock_run:
-                with patch("llm_council.cli.validate_config", return_value=[]):
+                with patch("llm_council.council.validate_config", return_value=[]):
                     mock_run.return_value = "Result"
                     with patch("builtins.print"):
                         main()
@@ -303,7 +303,7 @@ class TestStageFlag:
         """Test --stage 2 is accepted."""
         with patch("sys.argv", ["council.py", "--stage", "2", "Question"]):
             with patch("llm_council.cli.asyncio.run") as mock_run:
-                with patch("llm_council.cli.validate_config", return_value=[]):
+                with patch("llm_council.council.validate_config", return_value=[]):
                     mock_run.return_value = "Result"
                     with patch("builtins.print"):
                         main()
@@ -331,7 +331,7 @@ class TestDryRun:
         """Test that --dry-run does not call asyncio.run for council."""
         with patch("sys.argv", ["council.py", "--dry-run", "Question"]):
             with patch("llm_council.cli.asyncio.run") as mock_run:
-                with patch("llm_council.cli.validate_config", return_value=[]):
+                with patch("llm_council.council.validate_config", return_value=[]):
                     with patch("builtins.print"):
                         main()
                     # asyncio.run should NOT be called (no council run)
@@ -375,7 +375,7 @@ class TestFlattenFlag:
 
             with patch("sys.argv", ["council.py", "--flatten", tmpdir, "Review this"]):
                 with patch("llm_council.cli.asyncio.run") as mock_run:
-                    with patch("llm_council.cli.validate_config", return_value=[]):
+                    with patch("llm_council.council.validate_config", return_value=[]):
                         mock_run.return_value = "Result"
                         with patch("builtins.print"):
                             main()
