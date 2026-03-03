@@ -109,7 +109,7 @@ The source lives in `src/llm_council/`. Here is the complete module listing:
 - **`budget.py`** — Budget guard: token/cost limits with reserve/commit/release
 - **`cache.py`** — SQLite-backed response cache with TTL support
 - **`cli.py`** — `llm-council` CLI entry point (argparse definitions)
-- **`context.py`** — `CouncilContext` runtime container (API keys, providers, config)
+- **`context.py`** — `CouncilContext` runtime container (lazy provider imports, API keys, config)
 - **`cost.py`** — Per-stage cost tracking and token accounting
 - **`council.py`** — Main orchestration: `run_council()` and `validate_config()`
 - **`flattener.py`** — Codebase flattener (`flatten-project` CLI, `--flatten`, `--codemap`)
@@ -117,11 +117,17 @@ The source lives in `src/llm_council/`. Here is the complete module listing:
 - **`manifest.py`** — Run manifest generation (run_id, timestamps, config hash)
 - **`models.py`** — Pydantic data models (`CouncilConfig`, provider configs, result types)
 - **`parsing.py`** — Ranking response parsing and format utilities
-- **`persistence.py`** — Session persistence: JSONL logging and `--log-dir` support
+- **`persistence.py`** — Buffered JSONL run logger with per-stage flush
 - **`progress.py`** — Progress visualization during council runs
 - **`prompts.py`** — Prompt templates for all three pipeline stages
+- **`run_options.py`** — `RunOptions` dataclass for `run_council()` parameters
 - **`security.py`** — Input sanitization, prompt injection detection, nonce XML fencing
-- **`stages.py`** — 3-stage deliberation pipeline implementation
+- **`stages/`** — 3-stage pipeline package:
+  - `__init__.py` — Re-exports for backward compatibility
+  - `execution.py` — `query_model`, `stream_model`, parallel dispatch, budget guards
+  - `stage1.py` — Stage 1: collect individual model responses (with caching)
+  - `stage2.py` — Stage 2: anonymized peer ranking with retry
+  - `stage3.py` — Stage 3: chairman synthesis (query or streaming)
 
 ### Provider Modules
 
@@ -142,7 +148,7 @@ CLI flag for Stage 3 synthesis).
 1. Create a new file in `src/llm_council/providers/` (e.g., `my_provider.py`)
 2. Implement the `Provider` protocol from `providers/__init__.py`
 3. Optionally implement `StreamingProvider` by adding an `astream()` method (see below)
-4. Add provider initialization in `stages.py`
+4. Register the provider in the `_PROVIDER_MODULES` mapping in `context.py`
 5. Update configuration documentation
 
 Example provider structure:

@@ -348,7 +348,7 @@ src/llm_council/
 ├── budget.py                # Token and cost budget guards with reserve/commit/release
 ├── cache.py                 # SQLite response cache for Stage 1 (TTL, stats, clearing)
 ├── cli.py                   # CLI entry point, argparse flags, config loading
-├── context.py               # Per-run dependency-injection container (CouncilContext)
+├── context.py               # Per-run dependency-injection container (lazy provider imports)
 ├── cost.py                  # Token counting (tiktoken) and per-stage cost estimation
 ├── council.py               # Main orchestrator: validate_config, run_council
 ├── flattener.py             # Codebase flattener: directory → single markdown document
@@ -356,13 +356,19 @@ src/llm_council/
 ├── manifest.py              # Run manifest: metadata, timestamps, config hash
 ├── models.py                # Pydantic config models (CouncilConfig, provider configs, result types)
 ├── parsing.py               # Ranking parser: JSON/text extraction from model output
-├── persistence.py           # JSONL run logger for session persistence
+├── persistence.py           # Buffered JSONL run logger for session persistence
 ├── progress.py              # Real-time progress display (Rich TTY / plain non-TTY)
 ├── prompts.py               # Prompt templates for ranking and synthesis stages
+├── run_options.py           # RunOptions dataclass for run_council parameters
 ├── security.py              # Input sanitization, injection detection, nonce fencing, output redaction
-├── stages.py                # 3-stage pipeline logic: collect, rank, synthesize
+├── stages/                  # 3-stage pipeline package
+│   ├── __init__.py          # Re-exports for backward compatibility
+│   ├── execution.py         # query_model, stream_model, parallel dispatch, budget guards
+│   ├── stage1.py            # Stage 1: collect individual model responses (with caching)
+│   ├── stage2.py            # Stage 2: anonymized peer ranking with retry
+│   └── stage3.py            # Stage 3: chairman synthesis (query or streaming)
 └── providers/
-    ├── __init__.py           # Provider/StreamingProvider protocols, timeout constants, registry
+    ├── __init__.py           # Provider/StreamingProvider protocols, timeout constants
     ├── bedrock.py            # AWS Bedrock provider (Converse API, extended thinking, streaming)
     ├── openrouter.py         # OpenRouter provider (OpenAI-compatible API, SSE streaming)
     └── poe.py                # Poe provider (fastapi_poe, web search, reasoning effort)

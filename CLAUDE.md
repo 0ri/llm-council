@@ -46,13 +46,20 @@ See [Package Structure](README.md#package-structure) in the README for the full 
 src/llm_council/
 ├── cli.py                  # CLI entry point, argparse flags, config loading
 ├── council.py              # Main orchestrator: validate_config, run_council
-├── stages.py               # 3-stage pipeline logic: collect, rank, synthesize
+├── run_options.py           # RunOptions dataclass for run_council parameters
 ├── models.py               # Pydantic config models and result types
-├── context.py              # Per-run dependency-injection container
+├── context.py              # Per-run DI container (lazy provider imports)
+├── stages/                 # 3-stage pipeline package
+│   ├── __init__.py         # Re-exports for backward compatibility
+│   ├── execution.py        # query_model, stream_model, parallel dispatch
+│   ├── stage1.py           # Collect individual responses (with caching)
+│   ├── stage2.py           # Anonymized peer ranking with retry
+│   └── stage3.py           # Chairman synthesis (query or streaming)
 ├── providers/              # Provider implementations (Bedrock, Poe, OpenRouter)
 ├── aggregation.py          # Borda count, bootstrap confidence intervals
 ├── budget.py               # Token and cost budget guards
 ├── cache.py                # SQLite response cache for Stage 1
+├── persistence.py          # Buffered JSONL run logger
 ├── security.py             # Input sanitization, injection detection, nonce fencing
 ├── prompts.py              # Prompt templates for ranking and synthesis
 └── formatting.py           # Markdown output formatting
