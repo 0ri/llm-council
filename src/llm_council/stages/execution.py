@@ -2,6 +2,8 @@
 
 Provides ``query_model``, ``stream_model``, and ``query_models_parallel``
 with budget tracking, circuit-breaker integration, and soft timeouts.
+
+Budget and circuit-breaker lifecycle is centralized in ``_managed_execution``.
 """
 
 from __future__ import annotations
@@ -9,7 +11,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 from typing import Any
 
 from ..budget import BudgetExceededError
@@ -60,6 +64,92 @@ def _circuit_breaker_key(model_config: ModelConfig) -> str:
     return f"{provider_name}:{model_name}"
 
 
+# ---------------------------------------------------------------------------
+# Unified execution guard
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _GuardContext:
+    """State yielded by ``_managed_execution`` for callers to use."""
+
+    model_config: ModelConfig
+    model_name: str
+    provider_name: str
+    request: ProviderRequest
+    token_usage: dict[str, Any] | None = field(default=None, repr=False)
+
+
+@asynccontextmanager
+async def _managed_execution(
+    model_config: ModelConfig,
+    messages: list[dict[str, str]],
+    ctx: CouncilContext,
+    system_message: str | None = None,
+    *,
+    suppress_provider_flags: bool = False,
+) -> AsyncGenerator[_GuardContext, None]:
+    """Context manager for budget reservation and circuit-breaker recording.
+
+    Handles:
+    - Token estimation and budget reservation (before yield)
+    - Budget commit on normal exit (caller must set ``guard.token_usage``)
+    - Budget release on cancellation or exception
+    - Circuit-breaker success/failure recording
+
+    Raises ``BudgetExceededError`` before yielding if budget is exhausted.
+    """
+    model_config = coerce_model_config(model_config)
+    model_name = model_config.name
+    provider_name = model_config.provider
+
+    cb = ctx.get_circuit_breaker(_circuit_breaker_key(model_config))
+
+    # Budget reservation
+    est_in = 0
+    est_out = 0
+    reserved = False
+    if ctx.budget_guard is not None:
+        est_in, est_out = _estimate_request_tokens(messages, system_message)
+        await ctx.budget_guard.areserve(est_in, est_out, model_name)
+        reserved = True
+
+    request = ProviderRequest(
+        messages=messages,
+        system_message=system_message,
+        suppress_provider_flags=suppress_provider_flags,
+    )
+
+    guard = _GuardContext(
+        model_config=model_config,
+        model_name=model_name,
+        provider_name=provider_name,
+        request=request,
+    )
+
+    try:
+        yield guard
+        # Normal exit — success
+        cb.record_success()
+        if reserved:
+            actual_in, actual_out = _actual_or_estimated(guard.token_usage, est_in, est_out)
+            await ctx.budget_guard.acommit(actual_in, actual_out, model_name, est_in, est_out)
+    except asyncio.CancelledError:
+        if reserved:
+            await ctx.budget_guard.arelease(est_in, est_out, model_name)
+        raise
+    except Exception:
+        cb.record_failure()
+        if reserved:
+            await ctx.budget_guard.arelease(est_in, est_out, model_name)
+        raise
+
+
+# ---------------------------------------------------------------------------
+# Public query / stream functions
+# ---------------------------------------------------------------------------
+
+
 async def query_model(
     model_config: ModelConfig,
     messages: list[dict[str, str]],
@@ -70,80 +160,40 @@ async def query_model(
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     """Query a model through its provider, with timeout.
 
-    Args:
-        model_config: Typed ModelConfig with provider-specific attributes.
-        messages: List of message dicts
-        ctx: CouncilContext providing providers, circuit breakers, semaphore
-        system_message: Optional system message for injection hardening
-        suppress_provider_flags: If True, suppress provider-specific flags
-            (web_search, reasoning_effort) for ranking/synthesis queries.
-
     Returns:
         Tuple of (response dict with 'content' key or None, token usage dict or None)
     """
     model_config = coerce_model_config(model_config)
-    provider_name = model_config.provider
     model_name = model_config.name
 
-    cb_key = _circuit_breaker_key(model_config)
-    cb = ctx.get_circuit_breaker(cb_key)
+    cb = ctx.get_circuit_breaker(_circuit_breaker_key(model_config))
     if cb.is_open:
-        logger.warning(f"Circuit breaker open for {cb_key}, skipping {model_name}")
+        logger.warning(f"Circuit breaker open for {_circuit_breaker_key(model_config)}, skipping {model_name}")
         return None, None
-
-    # Budget reservation (atomic deduction so concurrent queries see reduced budget)
-    estimated_input = 0
-    estimated_output = 0
-    budget_reserved = False
-    if ctx.budget_guard is not None:
-        estimated_input, estimated_output = _estimate_request_tokens(messages, system_message)
-        try:
-            await ctx.budget_guard.areserve(estimated_input, estimated_output, model_name)
-            budget_reserved = True
-        except BudgetExceededError:
-            logger.warning(f"Budget exceeded, skipping {model_name}")
-            return None, {"budget_exceeded": True}
-
-    # Build typed request for the provider
-    request = ProviderRequest(
-        messages=messages,
-        system_message=system_message,
-        suppress_provider_flags=suppress_provider_flags,
-    )
 
     try:
-        provider = ctx.get_provider(provider_name)
-        sem = ctx.get_semaphore()
-        async with sem:
-            result = await asyncio.wait_for(
-                provider.query("", model_config, MODEL_TIMEOUT, request=request),
-                timeout=MODEL_TIMEOUT,
-            )
-        cb.record_success()
-
-        # Extract token usage if available (tuple response from provider)
-        content, token_usage = result
-
-        # Adjust reservation to actual usage
-        if budget_reserved:
-            actual_in, actual_out = _actual_or_estimated(token_usage, estimated_input, estimated_output)
-            await ctx.budget_guard.acommit(actual_in, actual_out, model_name, estimated_input, estimated_output)
-
-        return {"content": content}, token_usage
-    except asyncio.CancelledError:
-        if budget_reserved:
-            await ctx.budget_guard.arelease(estimated_input, estimated_output, model_name)
-        raise
+        async with _managed_execution(
+            model_config, messages, ctx, system_message, suppress_provider_flags=suppress_provider_flags
+        ) as guard:
+            provider = ctx.get_provider(guard.provider_name)
+            sem = ctx.get_semaphore()
+            async with sem:
+                result = await asyncio.wait_for(
+                    provider.query("", guard.model_config, MODEL_TIMEOUT, request=guard.request),
+                    timeout=MODEL_TIMEOUT,
+                )
+            content, token_usage = result
+            guard.token_usage = token_usage
+            return {"content": content}, token_usage
+    except BudgetExceededError:
+        logger.warning(f"Budget exceeded, skipping {model_name}")
+        return None, {"budget_exceeded": True}
     except asyncio.TimeoutError:
-        cb.record_failure()
-        if budget_reserved:
-            await ctx.budget_guard.arelease(estimated_input, estimated_output, model_name)
         logger.warning(f"Timeout querying {model_name} after {MODEL_TIMEOUT}s")
         return None, None
+    except asyncio.CancelledError:
+        raise
     except Exception as e:
-        cb.record_failure()
-        if budget_reserved:
-            await ctx.budget_guard.arelease(estimated_input, estimated_output, model_name)
         logger.error(f"Error querying {model_name}: {e}")
         return None, None
 
@@ -159,86 +209,50 @@ async def stream_model(
 ) -> tuple[str, dict | None]:
     """Stream a model response, falling back to query_model on error.
 
-    Args:
-        model_config: Typed ModelConfig with provider-specific attributes.
-        messages: List of message dicts.
-        ctx: CouncilContext providing providers, circuit breakers, semaphore.
-        on_chunk: Optional async callback invoked for each text chunk.
-        system_message: Optional system message.
-        suppress_provider_flags: If True, suppress provider-specific flags.
-
     Returns:
         Tuple of (accumulated text, token usage dict or None).
     """
     model_config = coerce_model_config(model_config)
-    provider_name = model_config.provider
     model_name = model_config.name
 
-    cb_key = _circuit_breaker_key(model_config)
-    cb = ctx.get_circuit_breaker(cb_key)
+    cb = ctx.get_circuit_breaker(_circuit_breaker_key(model_config))
     if cb.is_open:
-        logger.warning(f"Circuit breaker open for {cb_key}, skipping {model_name}")
+        logger.warning(f"Circuit breaker open for {_circuit_breaker_key(model_config)}, skipping {model_name}")
         return "", None
-
-    # Budget reservation
-    estimated_input = 0
-    estimated_output = 0
-    budget_reserved = False
-    if ctx.budget_guard is not None:
-        estimated_input, estimated_output = _estimate_request_tokens(messages, system_message)
-        try:
-            await ctx.budget_guard.areserve(estimated_input, estimated_output, model_name)
-            budget_reserved = True
-        except BudgetExceededError:
-            logger.warning(f"Budget exceeded, skipping {model_name}")
-            return "", None
-
-    # Build typed request for the provider
-    request = ProviderRequest(
-        messages=messages,
-        system_message=system_message,
-        suppress_provider_flags=suppress_provider_flags,
-    )
 
     accumulated = ""
     try:
-        provider = ctx.get_provider(provider_name)
+        async with _managed_execution(
+            model_config, messages, ctx, system_message, suppress_provider_flags=suppress_provider_flags
+        ) as guard:
+            provider = ctx.get_provider(guard.provider_name)
 
-        if isinstance(provider, StreamingProvider):
-            stream_result = provider.astream("", model_config, MODEL_TIMEOUT, request=request)
-        else:
-            stream_result = fallback_astream(provider, "", model_config, MODEL_TIMEOUT, request=request)
-        async for chunk in stream_result:
-            accumulated += chunk
-            if on_chunk is not None:
-                await on_chunk(chunk)
+            if isinstance(provider, StreamingProvider):
+                stream_result = provider.astream("", guard.model_config, MODEL_TIMEOUT, request=guard.request)
+            else:
+                stream_result = fallback_astream(
+                    provider, "", guard.model_config, MODEL_TIMEOUT, request=guard.request
+                )
+            async for chunk in stream_result:
+                accumulated += chunk
+                if on_chunk is not None:
+                    await on_chunk(chunk)
 
-        cb.record_success()
-
-        usage = stream_result.usage
-
-        # Commit budget
-        if budget_reserved:
-            actual_in, actual_out = _actual_or_estimated(usage, estimated_input, estimated_output)
-            await ctx.budget_guard.acommit(actual_in, actual_out, model_name, estimated_input, estimated_output)
-
-        return accumulated, usage
-
+            guard.token_usage = stream_result.usage
+            return accumulated, stream_result.usage
+    except BudgetExceededError:
+        logger.warning(f"Budget exceeded, skipping {model_name}")
+        return "", None
     except asyncio.CancelledError:
-        if budget_reserved:
-            await ctx.budget_guard.arelease(estimated_input, estimated_output, model_name)
         raise
     except Exception as e:
-        cb.record_failure()
-        if budget_reserved:
-            await ctx.budget_guard.arelease(estimated_input, estimated_output, model_name)
         logger.warning(f"Streaming error for {model_name}: {e}, falling back to query_model")
 
         # Notify the caller that streaming was interrupted before falling back
         if len(accumulated) > 0 and on_chunk is not None:
             await on_chunk("\n\n[Streaming interrupted, regenerating...]\n\n")
 
-        # Fall back to query_model
+        # Fall back to query_model (manages its own budget lifecycle)
         result, usage = await query_model(model_config, messages, ctx, system_message)
         if result is not None:
             return result.get("content", ""), usage
