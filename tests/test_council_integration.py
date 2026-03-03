@@ -360,7 +360,11 @@ class TestRunCouncilIntegration:
     @pytest.mark.asyncio
     async def test_chairman_fallback(self, sample_config):
         """Explicit chairman fails → #1 ranked model takes over."""
-        # Chairman is Model-A (from sample_config), but Model-B will be ranked #1
+        # Chairman is Model-A (from sample_config).
+        # We disable response order shuffling so ranking labels are deterministic:
+        # with no shuffle, "Response B" consistently maps to the later model in
+        # each ranker's filtered list, making Model-C the #1 ranked model
+        # (different from chairman Model-A), which triggers the fallback path.
         call_count = {"n": 0}
         chairman_attempts = {"count": 0}
 
@@ -370,9 +374,8 @@ class TestRunCouncilIntegration:
             if call_count["n"] <= 3:
                 return f"Response from {name}", None
             elif call_count["n"] <= 6:
-                # With 3 models and self-exclusion, each ranker sees 2 responses
-                # Response B ranked #1 (maps to a different model in each ranker's view,
-                # but aggregation resolves this via per-ranker label mappings)
+                # With 3 models and self-exclusion, each ranker sees 2 responses.
+                # No shuffle → "Response B" is always the second in original order.
                 return '```json\n{"ranking": ["Response B", "Response A"]}\n```', None
             else:
                 # Stage 3: first attempt (chairman Model-A) fails, fallback succeeds
@@ -384,7 +387,13 @@ class TestRunCouncilIntegration:
         mock_provider = MagicMock()
         mock_provider.query = mock_query
 
-        with patch.dict(os.environ, {"POE_API_KEY": "test-key"}):
+        # Patch random.Random in stages to disable shuffling, making label
+        # mappings deterministic so the #1 ranked model differs from chairman.
+        mock_rng = MagicMock()
+        mock_rng.shuffle = lambda x: None
+
+        with patch.dict(os.environ, {"POE_API_KEY": "test-key"}), \
+             patch("llm_council.stages.random.Random", return_value=mock_rng):
             result = await run_council(
                 "Chairman fallback test",
                 sample_config,
