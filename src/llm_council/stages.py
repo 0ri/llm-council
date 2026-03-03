@@ -44,6 +44,18 @@ from .security import build_manipulation_resistance_msg, format_anonymized_respo
 logger = logging.getLogger("llm-council")
 
 
+def _circuit_breaker_key(model_config: ModelConfig) -> str:
+    """Build a model-specific circuit breaker key from *model_config*."""
+    provider_name = model_config.provider
+    model_name = model_config.name
+    bot_name = getattr(model_config, "bot_name", "")
+    if provider_name == "poe" and bot_name:
+        return f"{provider_name}:{bot_name}"
+    if provider_name == "openrouter":
+        return f"openrouter:{getattr(model_config, 'model_id', model_name)}"
+    return f"{provider_name}:{model_name}"
+
+
 async def query_model(
     model_config: ModelConfig,
     messages: list[dict[str, str]],
@@ -68,17 +80,8 @@ async def query_model(
     model_config = coerce_model_config(model_config)
     provider_name = model_config.provider
     model_name = model_config.name
-    bot_name = getattr(model_config, "bot_name", "")
 
-    # Build model-specific circuit breaker key
-    if provider_name == "poe" and bot_name:
-        cb_key = f"{provider_name}:{bot_name}"
-    elif provider_name == "openrouter":
-        cb_key = f"openrouter:{getattr(model_config, 'model_id', model_name)}"
-    else:
-        cb_key = f"{provider_name}:{model_name}"
-
-    # Check circuit breaker
+    cb_key = _circuit_breaker_key(model_config)
     cb = ctx.get_circuit_breaker(cb_key)
     if cb.is_open:
         logger.warning(f"Circuit breaker open for {cb_key}, skipping {model_name}")
@@ -171,17 +174,8 @@ async def stream_model(
     model_config = coerce_model_config(model_config)
     provider_name = model_config.provider
     model_name = model_config.name
-    bot_name = getattr(model_config, "bot_name", "")
 
-    # Build circuit breaker key
-    if provider_name == "poe" and bot_name:
-        cb_key = f"{provider_name}:{bot_name}"
-    elif provider_name == "openrouter":
-        cb_key = f"openrouter:{getattr(model_config, 'model_id', model_name)}"
-    else:
-        cb_key = f"{provider_name}:{model_name}"
-
-    # Check circuit breaker
+    cb_key = _circuit_breaker_key(model_config)
     cb = ctx.get_circuit_breaker(cb_key)
     if cb.is_open:
         logger.warning(f"Circuit breaker open for {cb_key}, skipping {model_name}")
