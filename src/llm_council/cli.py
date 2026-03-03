@@ -317,15 +317,7 @@ def main():
     # Load config
     config = load_config(args.config)
 
-    # Validate config early for better error reporting
-    from .council import run_council, validate_config
-
-    errors = validate_config(config)
-    if errors:
-        logger.error("Configuration errors:")
-        for e in errors:
-            logger.error(f"  - {e}")
-        sys.exit(1)
+    from .council import run_council
 
     # --dry-run: print summary and exit without API calls
     if args.dry_run:

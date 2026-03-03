@@ -225,22 +225,20 @@ class TestMain:
             assert exc_info.value.code == 2
 
     def test_main_config_validation_errors(self):
-        """Test main when config validation fails."""
+        """Test main prints validation errors from run_council."""
         with patch("sys.argv", ["council.py", "Question"]):
             with patch("llm_council.cli.load_config") as mock_load:
-                with patch("llm_council.council.validate_config") as mock_validate:
+                with patch("llm_council.cli.asyncio.run") as mock_run:
                     with patch("llm_council.cli.setup_logging"):
-                        with patch("llm_council.cli.logger") as mock_logger:
-                            mock_load.return_value = {"invalid": "config"}
-                            mock_validate.return_value = ["Error 1", "Error 2"]
+                        mock_load.return_value = {"invalid": "config"}
+                        # run_council returns error string on validation failure
+                        mock_run.return_value = "Configuration errors:\n  - Error 1\n  - Error 2\n"
 
-                            with pytest.raises(SystemExit) as exc_info:
-                                with patch("sys.stderr"):
-                                    main()
+                        with patch("builtins.print") as mock_print:
+                            main()
 
-                            assert exc_info.value.code == 1
-                            # Verify error was logged
-                            mock_logger.error.assert_called()
+                        # The error message should be printed to stdout
+                        mock_print.assert_called()
 
     def test_main_config_path_with_spaces(self):
         """Test main with config path containing spaces."""
