@@ -276,11 +276,6 @@ class ProgressManager:
         for line in preview.split("\n"):
             print(f"  {line}", file=sys.stderr, flush=True)
 
-    def write_chunk(self, text: str):
-        """Write a text chunk directly to stdout for Stage 3 streaming."""
-        sys.stdout.write(text)
-        sys.stdout.flush()
-
     async def pause_live(self):
         """Pause/stop the Rich Live display before Stage 3 streaming begins."""
         if self.is_tty:

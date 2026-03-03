@@ -414,7 +414,7 @@ def test_stage1_output_ordering_invariant_to_completion_order(
 # --- Property Test 5: Output equivalence regardless of streaming mode ---
 # Feature: streaming-output, Property 5: Output equivalence regardless of streaming mode
 
-from llm_council.models import AggregateRanking, Stage2Result, Stage3Result  # noqa: E402
+from llm_council.models import AggregateRanking, Stage1Result, Stage3Result  # noqa: E402
 from llm_council.stages import stage3_synthesize_final  # noqa: E402
 
 
@@ -482,22 +482,6 @@ def test_output_equivalence_regardless_of_streaming_mode(
             Stage1Result(model="model-b", response=model_response_2),
         ]
 
-        # Build mock Stage2Results
-        stage2_results = [
-            Stage2Result(
-                model="model-a",
-                ranking="Response A > Response B",
-                parsed_ranking=["Response A", "Response B"],
-                is_valid_ballot=True,
-            ),
-            Stage2Result(
-                model="model-b",
-                ranking="Response B > Response A",
-                parsed_ranking=["Response B", "Response A"],
-                is_valid_ballot=True,
-            ),
-        ]
-
         label_to_model = {"Response A": "model-a", "Response B": "model-b"}
 
         aggregate_rankings = [
@@ -522,7 +506,6 @@ def test_output_equivalence_regardless_of_streaming_mode(
         result_no_stream, _usage1 = await stage3_synthesize_final(
             user_query=question,
             stage1_results=stage1_results,
-            stage2_results=stage2_results,
             label_to_model=label_to_model,
             aggregate_rankings=aggregate_rankings,
             chairman_config=chairman_config,
@@ -534,7 +517,6 @@ def test_output_equivalence_regardless_of_streaming_mode(
         result_stream, _usage2 = await stage3_synthesize_final(
             user_query=question,
             stage1_results=stage1_results,
-            stage2_results=stage2_results,
             label_to_model=label_to_model,
             aggregate_rankings=aggregate_rankings,
             chairman_config=chairman_config,

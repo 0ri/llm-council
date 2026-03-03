@@ -356,7 +356,6 @@ async def run_council(
             stage3_result, stage3_token_usage = await stage3_synthesize_final(
                 question,
                 stage1_results,
-                stage2_results,
                 label_to_model,
                 aggregate_rankings,
                 chairman_config_typed,
@@ -374,7 +373,6 @@ async def run_council(
                     stage3_result, stage3_token_usage = await stage3_synthesize_final(
                         question,
                         stage1_results,
-                        stage2_results,
                         label_to_model,
                         aggregate_rankings,
                         fallback_config,

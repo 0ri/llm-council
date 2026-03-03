@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import warnings
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -214,21 +215,15 @@ class BudgetGuard:
     ) -> None:
         """Perform a read-only preflight budget check.
 
-        Temporarily reserves and immediately releases the estimate so
-        that ``BudgetExceededError`` is raised without mutating state.
-        Kept for backwards compatibility; prefer ``reserve()`` for
-        concurrent use.
-
-        Args:
-            estimated_input_tokens: Expected input tokens.
-            estimated_output_tokens: Expected output tokens.
-            model_name: Model name for error messages.
-
-        Raises:
-            BudgetExceededError: If the estimated usage would exceed
-                configured limits.
+        .. deprecated::
+            Use :meth:`reserve` for concurrent use.  ``can_afford`` will
+            be removed in a future release.
         """
-        # Temporarily check without mutating by calling reserve then release
+        warnings.warn(
+            "BudgetGuard.can_afford() is deprecated, use reserve()/release() instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.reserve(estimated_input_tokens, estimated_output_tokens, model_name)
         self.release(estimated_input_tokens, estimated_output_tokens, model_name)
 
@@ -240,21 +235,16 @@ class BudgetGuard:
     ) -> None:
         """Reserve and immediately commit with the same estimates.
 
-        Legacy convenience method kept for backwards compatibility.
-
-        Args:
-            estimated_input_tokens: Estimated input tokens to reserve
-                and commit.
-            estimated_output_tokens: Estimated output tokens to reserve
-                and commit.
-            model_name: Model name for logging.
-
-        Raises:
-            BudgetExceededError: If the estimated usage would exceed
-                configured limits.
+        .. deprecated::
+            Use :meth:`reserve` / :meth:`commit` instead.
+            ``check_and_update`` will be removed in a future release.
         """
+        warnings.warn(
+            "BudgetGuard.check_and_update() is deprecated, use reserve()/commit() instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.reserve(estimated_input_tokens, estimated_output_tokens, model_name)
-        # Commit with reserved amounts so the adjustment is zero (already deducted by reserve)
         self.commit(
             estimated_input_tokens,
             estimated_output_tokens,
@@ -264,7 +254,17 @@ class BudgetGuard:
         )
 
     def reset(self) -> None:
-        """Reset all tracking counters to zero and clear the query log."""
+        """Reset all tracking counters to zero and clear the query log.
+
+        .. deprecated::
+            Create a new ``BudgetGuard`` instead.  ``reset`` will be
+            removed in a future release.
+        """
+        warnings.warn(
+            "BudgetGuard.reset() is deprecated, create a new BudgetGuard instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.total_input_tokens = 0
         self.total_output_tokens = 0
         self.total_cost_usd = 0.0

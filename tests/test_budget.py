@@ -1,8 +1,18 @@
 """Tests for budget control functionality."""
 
+import warnings
+
 import pytest
 
 from llm_council.budget import BudgetExceededError, BudgetGuard, create_budget_guard
+
+
+@pytest.fixture(autouse=True)
+def _suppress_deprecation_warnings():
+    """Suppress DeprecationWarning from legacy budget methods under test."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        yield
 
 
 class TestBudgetGuard:

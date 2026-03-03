@@ -28,7 +28,6 @@ from .models import (
     Stage3Result,
     coerce_model_config,
     generate_letter_labels,
-    generate_response_labels,
     get_model_identifier,
 )
 from .parsing import parse_ranking_from_text
@@ -770,7 +769,6 @@ def build_synthesis_prompt(
     question: str,
     responses: list[tuple[str, str]],
     rankings: dict[str, str],
-    labels: list[str],
     aggregate_rankings: list[AggregateRanking],
     *,
     custom_template: str | None = None,
@@ -781,7 +779,6 @@ def build_synthesis_prompt(
         question: The original user question
         responses: List of (model_name, response_text) tuples
         rankings: Mapping of labels to model names
-        labels: List of response labels
         aggregate_rankings: Sorted AggregateRanking objects
 
     Returns:
@@ -816,7 +813,6 @@ def build_synthesis_prompt(
 async def stage3_synthesize_final(
     user_query: str,
     stage1_results: list[Stage1Result],
-    stage2_results: list[Stage2Result],
     label_to_model: dict[str, str],
     aggregate_rankings: list[AggregateRanking],
     chairman_config: ModelConfig,
@@ -831,7 +827,6 @@ async def stage3_synthesize_final(
     Args:
         user_query: The user's question
         stage1_results: List of Stage1Result objects
-        stage2_results: List of Stage2Result objects
         label_to_model: Label to model mapping
         aggregate_rankings: List of AggregateRanking objects
         chairman_config: Typed ModelConfig for the chairman model
@@ -850,9 +845,8 @@ async def stage3_synthesize_final(
         await progress.start_stage(3, f"Chairman ({chairman_name}) synthesizing", [chairman_name])
         await progress.update_model(chairman_name, ModelStatus.QUERYING)
 
-    # Build responses tuples and labels for prompt construction, sanitizing outputs
+    # Build responses tuples for prompt construction, sanitizing outputs
     response_tuples = [(result.model, sanitize_model_output(result.response)) for result in stage1_results]
-    labels = generate_response_labels(len(stage1_results))
 
     # Build the synthesis prompt (supports custom templates via config)
     prompt_config = getattr(ctx, "prompt_config", None)
@@ -861,7 +855,6 @@ async def stage3_synthesize_final(
         user_query,
         response_tuples,
         label_to_model,
-        labels,
         aggregate_rankings,
         custom_template=custom_synthesis_user,
     )
