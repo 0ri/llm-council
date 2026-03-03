@@ -9,11 +9,9 @@ from unittest.mock import Mock, patch
 import pytest
 from botocore.exceptions import ClientError
 
-from llm_council.providers import (
-    BedrockProvider,
-    PoeProvider,
-    ProviderRequest,
-)
+from llm_council.providers import ProviderRequest
+from llm_council.providers.bedrock import BedrockProvider
+from llm_council.providers.poe import PoeProvider
 
 # Check if fastapi_poe is available
 try:

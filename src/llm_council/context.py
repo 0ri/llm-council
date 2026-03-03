@@ -8,6 +8,7 @@ concurrent council runs do not share mutable state.
 from __future__ import annotations
 
 import asyncio
+import importlib
 import inspect
 import logging
 import warnings
@@ -19,18 +20,15 @@ from .cache import ResponseCache
 from .cost import CouncilCostTracker
 from .progress import ProgressManager
 from .providers import CircuitBreaker, Provider
-from .providers.bedrock import BedrockProvider
-from .providers.openrouter import OpenRouterProvider
-from .providers.poe import PoeProvider
 
 logger = logging.getLogger(__name__)
 
-# Item 21: Provider registry mapping provider names to their classes.
-# Keeps the if/elif dispatch in get_provider data-driven and extensible.
-PROVIDER_REGISTRY: dict[str, type[Provider]] = {
-    "bedrock": BedrockProvider,
-    "poe": PoeProvider,
-    "openrouter": OpenRouterProvider,
+# Lazy provider registry: maps provider name -> (module path, class name).
+# Providers are imported on first use via importlib.import_module().
+_PROVIDER_MODULES: dict[str, tuple[str, str]] = {
+    "bedrock": ("llm_council.providers.bedrock", "BedrockProvider"),
+    "poe": ("llm_council.providers.poe", "PoeProvider"),
+    "openrouter": ("llm_council.providers.openrouter", "OpenRouterProvider"),
 }
 
 # API key requirements per provider (field name on CouncilContext -> display name)
@@ -119,13 +117,18 @@ class CouncilContext:
     def get_provider(self, provider_name: str) -> Provider:
         """Return a cached provider instance, creating it lazily.
 
-        Uses ``PROVIDER_REGISTRY`` for dispatch.  Raises ``ValueError``
-        for unknown provider names or if a required API key is missing.
+        Uses ``_PROVIDER_MODULES`` for dispatch with lazy import.
+        Raises ``ValueError`` for unknown provider names or if a
+        required API key is missing.
         """
         if provider_name not in self.providers:
-            provider_cls = PROVIDER_REGISTRY.get(provider_name)
-            if provider_cls is None:
+            entry = _PROVIDER_MODULES.get(provider_name)
+            if entry is None:
                 raise ValueError(f"Unknown provider: {provider_name}")
+
+            module_path, class_name = entry
+            module = importlib.import_module(module_path)
+            provider_cls = getattr(module, class_name)
 
             # Check API key requirements
             api_key_attr = _PROVIDER_API_KEYS.get(provider_name)

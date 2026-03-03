@@ -16,11 +16,6 @@ import typing
 if typing.TYPE_CHECKING:
     from ..models import ModelConfig
 
-from .bedrock import BedrockProvider
-from .openrouter import OpenRouterProvider
-from .poe import PoeProvider
-
-
 @dataclasses.dataclass(slots=True)
 class ProviderRequest:
     """Typed request object passed alongside model_config to providers.
@@ -258,7 +253,6 @@ class CircuitBreaker:
 
 
 __all__ = [
-    "BedrockProvider",
     "CircuitBreaker",
     "DEFAULT_MAX_TOKENS",
     "DEFAULT_REGION",
@@ -266,8 +260,6 @@ __all__ = [
     "MAX_RETRIES",
     "MODEL_TIMEOUT",
     "SOFT_TIMEOUT",
-    "OpenRouterProvider",
-    "PoeProvider",
     "Provider",
     "ProviderRequest",
     "StreamResult",

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from llm_council.context import PROVIDER_REGISTRY, CouncilContext
+from llm_council.context import _PROVIDER_MODULES, CouncilContext
 from llm_council.providers import CircuitBreaker
 from llm_council.providers.bedrock import BedrockProvider
 from llm_council.providers.openrouter import OpenRouterProvider
@@ -175,19 +175,19 @@ class TestAsyncContextManager:
 
 
 class TestProviderRegistry:
-    """Item 21: Provider registry for extensible dispatch."""
+    """Provider registry for extensible dispatch (lazy import)."""
 
     def test_registry_contains_all_providers(self):
         """Registry should contain bedrock, poe, and openrouter."""
-        assert "bedrock" in PROVIDER_REGISTRY
-        assert "poe" in PROVIDER_REGISTRY
-        assert "openrouter" in PROVIDER_REGISTRY
+        assert "bedrock" in _PROVIDER_MODULES
+        assert "poe" in _PROVIDER_MODULES
+        assert "openrouter" in _PROVIDER_MODULES
 
-    def test_registry_maps_to_correct_classes(self):
-        """Registry should map to the correct provider classes."""
-        assert PROVIDER_REGISTRY["bedrock"] is BedrockProvider
-        assert PROVIDER_REGISTRY["poe"] is PoeProvider
-        assert PROVIDER_REGISTRY["openrouter"] is OpenRouterProvider
+    def test_registry_maps_to_correct_module_class(self):
+        """Registry should map to (module_path, class_name) tuples."""
+        assert _PROVIDER_MODULES["bedrock"] == ("llm_council.providers.bedrock", "BedrockProvider")
+        assert _PROVIDER_MODULES["poe"] == ("llm_council.providers.poe", "PoeProvider")
+        assert _PROVIDER_MODULES["openrouter"] == ("llm_council.providers.openrouter", "OpenRouterProvider")
 
     def test_get_provider_uses_registry(self):
         """get_provider should use registry-based dispatch."""
