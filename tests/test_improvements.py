@@ -248,7 +248,7 @@ class TestAggressiveTimeout:
                 await asyncio.sleep(10)
                 return {"content": "slow response"}, None
 
-        with patch("llm_council.stages.query_model", side_effect=mock_query_model):
+        with patch("llm_council.stages.execution.query_model", side_effect=mock_query_model):
             ctx = _make_ctx()
             results, usages = await query_models_parallel(
                 model_configs,
@@ -278,7 +278,7 @@ class TestAggressiveTimeout:
             await asyncio.sleep(0.1)
             return {"content": f"response from {config.name}"}, None
 
-        with patch("llm_council.stages.query_model", side_effect=mock_query_model):
+        with patch("llm_council.stages.execution.query_model", side_effect=mock_query_model):
             ctx = _make_ctx()
             results, usages = await query_models_parallel(
                 model_configs,
@@ -307,7 +307,7 @@ class TestAggressiveTimeout:
                 await asyncio.sleep(10)
                 return {"content": "slow"}, None
 
-        with patch("llm_council.stages.query_model", side_effect=mock_query_model):
+        with patch("llm_council.stages.execution.query_model", side_effect=mock_query_model):
             ctx = _make_ctx()
             results, usages = await query_models_parallel(
                 model_configs,
