@@ -216,7 +216,10 @@ async def run_council(
         run_logger.log_config(question, config)
 
     # Extract typed ModelConfig objects from validated config
-    validated = CouncilConfig(**config)
+    if isinstance(config, CouncilConfig):
+        validated = config
+    else:
+        validated = CouncilConfig(**config)
     council_models = list(validated.council_models)
     chairman_config_typed = validated.chairman
     auto_chairman = chairman_config_typed is None
