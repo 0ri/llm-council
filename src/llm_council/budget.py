@@ -59,6 +59,10 @@ class BudgetGuard:
     queries: list[dict[str, Any]] = field(default_factory=list, init=False)
     _lock: asyncio.Lock | None = field(default=None, init=False, repr=False)
 
+    def _estimate_cost(self, input_tokens: int, output_tokens: int) -> float:
+        """Compute the USD cost for the given token counts."""
+        return input_tokens / 1000 * self.input_cost_per_1k + output_tokens / 1000 * self.output_cost_per_1k
+
     def reserve(
         self,
         estimated_input_tokens: int,
@@ -86,10 +90,7 @@ class BudgetGuard:
         projected_output = self.total_output_tokens + estimated_output_tokens
         projected_total = projected_input + projected_output
 
-        query_cost = (
-            estimated_input_tokens / 1000 * self.input_cost_per_1k
-            + estimated_output_tokens / 1000 * self.output_cost_per_1k
-        )
+        query_cost = self._estimate_cost(estimated_input_tokens, estimated_output_tokens)
         projected_cost = self.total_cost_usd + query_cost
 
         if self.max_tokens is not None and projected_total > self.max_tokens:
@@ -137,10 +138,7 @@ class BudgetGuard:
                 originally reserved.
             model_name: Model name for logging.
         """
-        query_cost = (
-            estimated_input_tokens / 1000 * self.input_cost_per_1k
-            + estimated_output_tokens / 1000 * self.output_cost_per_1k
-        )
+        query_cost = self._estimate_cost(estimated_input_tokens, estimated_output_tokens)
         self.total_input_tokens -= estimated_input_tokens
         self.total_output_tokens -= estimated_output_tokens
         self.total_cost_usd -= query_cost
@@ -169,13 +167,11 @@ class BudgetGuard:
             reserved_output: Output tokens that were previously reserved.
                 Pass 0 if no reservation was made.
         """
-        query_cost = input_tokens / 1000 * self.input_cost_per_1k + output_tokens / 1000 * self.output_cost_per_1k
+        query_cost = self._estimate_cost(input_tokens, output_tokens)
 
         if reserved_input or reserved_output:
             # Adjust: swap reservation for actual usage
-            reserved_cost = (
-                reserved_input / 1000 * self.input_cost_per_1k + reserved_output / 1000 * self.output_cost_per_1k
-            )
+            reserved_cost = self._estimate_cost(reserved_input, reserved_output)
             self.total_input_tokens += input_tokens - reserved_input
             self.total_output_tokens += output_tokens - reserved_output
             self.total_cost_usd += query_cost - reserved_cost

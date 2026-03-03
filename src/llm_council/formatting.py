@@ -11,6 +11,31 @@ from __future__ import annotations
 from .models import AggregateRanking, Stage1Result, Stage3Result
 
 
+def _format_rankings_table(aggregate_rankings: list[AggregateRanking]) -> list[str]:
+    """Return markdown lines for the rankings table header + rows."""
+    lines: list[str] = []
+    lines.append("### Model Rankings (by peer review)\n")
+    lines.append("| Rank | Model | Avg Position | 95% CI | Borda Score |")
+    lines.append("|------|-------|--------------|--------|-------------|")
+
+    for i, ranking in enumerate(aggregate_rankings, start=1):
+        ci_str = f"[{ranking.ci_lower or 0}, {ranking.ci_upper or 0}]"
+        borda = ranking.borda_score or 0
+        lines.append(f"| {i} | {ranking.model} | {ranking.average_rank} | {ci_str} | {borda} |")
+
+    return lines
+
+
+def _format_ballot_status(valid_ballots: int, total_ballots: int) -> str:
+    """Return the ballot validity indicator line."""
+    if valid_ballots == total_ballots:
+        return f"*Rankings based on {valid_ballots}/{total_ballots} valid ballots (anonymous peer evaluation)*"
+    return (
+        f"*Rankings based on {valid_ballots}/{total_ballots} "
+        "valid ballots (some rankings could not be parsed reliably)*"
+    )
+
+
 def format_output(
     aggregate_rankings: list[AggregateRanking],
     stage3_result: Stage3Result,
@@ -43,25 +68,9 @@ def format_output(
     output: list[str] = []
     output.append("## LLM Council Response\n")
 
-    # Rankings table with confidence intervals and Borda scores
-    output.append("### Model Rankings (by peer review)\n")
-    output.append("| Rank | Model | Avg Position | 95% CI | Borda Score |")
-    output.append("|------|-------|--------------|--------|-------------|")
+    output.extend(_format_rankings_table(aggregate_rankings))
 
-    for i, ranking in enumerate(aggregate_rankings, start=1):
-        ci_str = f"[{ranking.ci_lower or 0}, {ranking.ci_upper or 0}]"
-        borda = ranking.borda_score or 0
-        output.append(f"| {i} | {ranking.model} | {ranking.average_rank} | {ci_str} | {borda} |")
-
-    # Ballot validity indicator
-    if valid_ballots == total_ballots:
-        ballot_status = f"*Rankings based on {valid_ballots}/{total_ballots} valid ballots (anonymous peer evaluation)*"
-    else:
-        ballot_status = (
-            f"*Rankings based on {valid_ballots}/{total_ballots} "
-            "valid ballots (some rankings could not be parsed reliably)*"
-        )
-
+    ballot_status = _format_ballot_status(valid_ballots, total_ballots)
     output.append(f"\n{ballot_status}\n")
     output.append("---\n")
 
@@ -98,23 +107,9 @@ def format_stage2_output(
     output: list[str] = []
     output.append("## LLM Council Response (Stages 1-2, no synthesis)\n")
 
-    # Rankings table
-    output.append("### Model Rankings (by peer review)\n")
-    output.append("| Rank | Model | Avg Position | 95% CI | Borda Score |")
-    output.append("|------|-------|--------------|--------|-------------|")
+    output.extend(_format_rankings_table(aggregate_rankings))
 
-    for i, ranking in enumerate(aggregate_rankings, start=1):
-        ci_str = f"[{ranking.ci_lower or 0}, {ranking.ci_upper or 0}]"
-        borda = ranking.borda_score or 0
-        output.append(f"| {i} | {ranking.model} | {ranking.average_rank} | {ci_str} | {borda} |")
-
-    if valid_ballots == total_ballots:
-        ballot_status = f"*Rankings based on {valid_ballots}/{total_ballots} valid ballots (anonymous peer evaluation)*"
-    else:
-        ballot_status = (
-            f"*Rankings based on {valid_ballots}/{total_ballots} "
-            "valid ballots (some rankings could not be parsed reliably)*"
-        )
+    ballot_status = _format_ballot_status(valid_ballots, total_ballots)
     output.append(f"\n{ballot_status}\n")
     output.append("---\n")
 
