@@ -21,6 +21,32 @@ from ..providers import MODEL_TIMEOUT, SOFT_TIMEOUT, ProviderRequest, StreamingP
 
 logger = logging.getLogger("llm-council")
 
+_DEFAULT_OUTPUT_ESTIMATE = 2000  # Conservative output token estimate
+
+
+def _estimate_request_tokens(
+    messages: list[dict[str, str]], system_message: str | None = None
+) -> tuple[int, int]:
+    """Return (estimated_input_tokens, estimated_output_tokens) for a request."""
+    input_text = " ".join(m.get("content", "") for m in messages)
+    if system_message:
+        input_text += " " + system_message
+    return estimate_tokens(input_text), _DEFAULT_OUTPUT_ESTIMATE
+
+
+def _actual_or_estimated(
+    token_usage: dict[str, Any] | None,
+    estimated_input: int,
+    estimated_output: int,
+) -> tuple[int, int]:
+    """Prefer actual token counts from provider, fall back to estimates."""
+    if token_usage:
+        return (
+            token_usage.get("input_tokens", estimated_input),
+            token_usage.get("output_tokens", estimated_output),
+        )
+    return estimated_input, estimated_output
+
 
 def _circuit_breaker_key(model_config: ModelConfig) -> str:
     """Build a model-specific circuit breaker key from *model_config*."""
@@ -70,11 +96,7 @@ async def query_model(
     estimated_output = 0
     budget_reserved = False
     if ctx.budget_guard is not None:
-        input_text = " ".join(m.get("content", "") for m in messages)
-        if system_message:
-            input_text += " " + system_message
-        estimated_input = estimate_tokens(input_text)
-        estimated_output = 2000  # conservative estimate
+        estimated_input, estimated_output = _estimate_request_tokens(messages, system_message)
         try:
             await ctx.budget_guard.areserve(estimated_input, estimated_output, model_name)
             budget_reserved = True
@@ -104,8 +126,7 @@ async def query_model(
 
         # Adjust reservation to actual usage
         if budget_reserved:
-            actual_in = token_usage.get("input_tokens", estimated_input) if token_usage else estimated_input
-            actual_out = token_usage.get("output_tokens", estimated_output) if token_usage else estimated_output
+            actual_in, actual_out = _actual_or_estimated(token_usage, estimated_input, estimated_output)
             await ctx.budget_guard.acommit(actual_in, actual_out, model_name, estimated_input, estimated_output)
 
         return {"content": content}, token_usage
@@ -164,13 +185,7 @@ async def stream_model(
     estimated_output = 0
     budget_reserved = False
     if ctx.budget_guard is not None:
-        from ..cost import estimate_tokens
-
-        input_text = " ".join(m.get("content", "") for m in messages)
-        if system_message:
-            input_text += " " + system_message
-        estimated_input = estimate_tokens(input_text)
-        estimated_output = 2000
+        estimated_input, estimated_output = _estimate_request_tokens(messages, system_message)
         try:
             await ctx.budget_guard.areserve(estimated_input, estimated_output, model_name)
             budget_reserved = True
@@ -204,8 +219,7 @@ async def stream_model(
 
         # Commit budget
         if budget_reserved:
-            actual_in = usage.get("input_tokens", estimated_input) if usage else estimated_input
-            actual_out = usage.get("output_tokens", estimated_output) if usage else estimated_output
+            actual_in, actual_out = _actual_or_estimated(usage, estimated_input, estimated_output)
             await ctx.budget_guard.acommit(actual_in, actual_out, model_name, estimated_input, estimated_output)
 
         return accumulated, usage
