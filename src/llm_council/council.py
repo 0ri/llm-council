@@ -27,6 +27,7 @@ from .formatting import format_output, format_stage1_output, format_stage2_outpu
 from .manifest import RunManifest
 from .models import CouncilConfig, generate_response_labels
 from .progress import ProgressManager
+from .run_options import RunOptions
 from .security import sanitize_user_input
 from .stages import stage1_collect_responses, stage2_collect_rankings, stage3_synthesize_final
 
@@ -135,6 +136,8 @@ async def run_council(
     cache_ttl: int = 86400,
     stream: bool = False,
     on_chunk: Callable[[str], Awaitable[None]] | None = None,
+    *,
+    options: RunOptions | None = None,
 ) -> str:
     """Run the LLM Council 3-stage deliberation pipeline.
 
@@ -152,6 +155,9 @@ async def run_council(
         question: The user question to present to the council.
         config: Council configuration as a ``CouncilConfig`` instance or
             a plain dict/Mapping (validated internally).
+        options: Optional ``RunOptions`` dataclass consolidating the
+            keyword-only parameters below.  When provided, individual
+            keyword arguments are ignored.
         print_manifest: If ``True``, write the run manifest as JSON to
             *stderr* after the run completes.
         log_dir: Directory path for JSONL run logs.  When set, a
@@ -185,6 +191,18 @@ async def run_council(
             exceeds the limits defined in the ``budget`` section of
             *config*.
     """
+    # Unpack RunOptions when provided, overriding individual keyword args
+    if options is not None:
+        print_manifest = options.print_manifest
+        log_dir = options.log_dir
+        context_factory = options.context_factory
+        max_stage = options.max_stage
+        seed = options.seed
+        use_cache = options.use_cache
+        cache_ttl = options.cache_ttl
+        stream = options.stream
+        on_chunk = options.on_chunk
+
     # Track start time for manifest
     start_time = time.time()
 
