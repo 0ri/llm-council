@@ -13,7 +13,7 @@ Scenarios:
 from __future__ import annotations
 
 import os
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -121,9 +121,15 @@ class TestGoldenFullNonStream:
     def test_full_output_structure(self):
         """Full output should contain rankings table + synthesis."""
         rankings = [
-            AggregateRanking(model="Model-A", average_rank=1.5, rankings_count=2, ci_lower=1.2, ci_upper=1.8, borda_score=8),
-            AggregateRanking(model="Model-B", average_rank=2.0, rankings_count=2, ci_lower=1.7, ci_upper=2.3, borda_score=6),
-            AggregateRanking(model="Model-C", average_rank=2.5, rankings_count=2, ci_lower=2.1, ci_upper=2.9, borda_score=4),
+            AggregateRanking(
+                model="Model-A", average_rank=1.5, rankings_count=2, ci_lower=1.2, ci_upper=1.8, borda_score=8
+            ),
+            AggregateRanking(
+                model="Model-B", average_rank=2.0, rankings_count=2, ci_lower=1.7, ci_upper=2.3, borda_score=6
+            ),
+            AggregateRanking(
+                model="Model-C", average_rank=2.5, rankings_count=2, ci_lower=2.1, ci_upper=2.9, borda_score=4
+            ),
         ]
         stage3 = Stage3Result(model="Model-A", response="The synthesized answer.")
 
@@ -184,7 +190,6 @@ class TestGoldenStreamFallback:
     async def test_stream_fallback_produces_output(self):
         """When streaming is requested but provider doesn't support it,
         fallback_astream wraps query_model and produces valid output."""
-        from llm_council.providers import StreamResult, fallback_astream
         from llm_council.stages import stream_model
 
         # Test at the stream_model level: provider with no astream
@@ -262,8 +267,12 @@ class TestGoldenStage2Output:
     def test_stage2_output_structure(self):
         """Stage 2 output contains rankings table + individual responses."""
         rankings = [
-            AggregateRanking(model="Model-A", average_rank=1.0, rankings_count=2, ci_lower=1.0, ci_upper=1.0, borda_score=6),
-            AggregateRanking(model="Model-B", average_rank=2.0, rankings_count=2, ci_lower=2.0, ci_upper=2.0, borda_score=3),
+            AggregateRanking(
+                model="Model-A", average_rank=1.0, rankings_count=2, ci_lower=1.0, ci_upper=1.0, borda_score=6
+            ),
+            AggregateRanking(
+                model="Model-B", average_rank=2.0, rankings_count=2, ci_lower=2.0, ci_upper=2.0, borda_score=3
+            ),
         ]
         results = [
             Stage1Result(model="Model-A", response="Answer A"),

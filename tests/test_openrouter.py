@@ -134,7 +134,9 @@ class TestOpenRouterProvider:
             mock_client.post = AsyncMock(return_value=mock_response)
             mock_client_fn.return_value = mock_client
 
-            config = OpenRouterModelConfig(name="test", provider="openrouter", model_id="test", temperature=0.7, max_tokens=4096)
+            config = OpenRouterModelConfig(
+                name="test", provider="openrouter", model_id="test", temperature=0.7, max_tokens=4096
+            )
             await provider.query("Test", config, timeout=30)
 
             call_args = mock_client.post.call_args

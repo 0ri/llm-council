@@ -193,8 +193,9 @@ def test_startup_cleanup_deletes_expired_entries(
             age = ttl + expired_extra
             expired_keys.add(key)
         else:
-            # Clearly fresh: age = 0 (just created)
-            age = 0
+            # Clearly fresh: use negative age (future timestamp) to avoid
+            # boundary timing issues between Python and SQLite clocks
+            age = -5
             fresh_keys.add(key)
 
         created_at = (datetime.now(timezone.utc) - timedelta(seconds=age)).strftime("%Y-%m-%d %H:%M:%S")

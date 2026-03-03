@@ -16,6 +16,7 @@ import typing
 if typing.TYPE_CHECKING:
     from ..models import ModelConfig
 
+
 @dataclasses.dataclass(slots=True)
 class ProviderRequest:
     """Typed request object passed alongside model_config to providers.

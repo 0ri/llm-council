@@ -87,9 +87,7 @@ class TestManagedExecutionGuard:
         ctx = _make_ctx()
 
         with pytest.raises(RuntimeError):
-            async with _managed_execution(
-                _make_config(), [{"role": "user", "content": "hi"}], ctx
-            ):
+            async with _managed_execution(_make_config(), [{"role": "user", "content": "hi"}], ctx):
                 raise RuntimeError("provider error")
 
         ctx.budget_guard.arelease.assert_awaited_once()
@@ -101,9 +99,7 @@ class TestManagedExecutionGuard:
         ctx = _make_ctx()
 
         with pytest.raises(asyncio.CancelledError):
-            async with _managed_execution(
-                _make_config(), [{"role": "user", "content": "hi"}], ctx
-            ):
+            async with _managed_execution(_make_config(), [{"role": "user", "content": "hi"}], ctx):
                 raise asyncio.CancelledError()
 
         ctx.budget_guard.arelease.assert_awaited_once()
@@ -114,9 +110,7 @@ class TestManagedExecutionGuard:
         """Circuit breaker records success when context exits normally."""
         ctx = _make_ctx(budget=False)
 
-        async with _managed_execution(
-            _make_config(), [{"role": "user", "content": "hi"}], ctx
-        ):
+        async with _managed_execution(_make_config(), [{"role": "user", "content": "hi"}], ctx):
             pass
 
         cb = ctx.get_circuit_breaker.return_value
@@ -129,9 +123,7 @@ class TestManagedExecutionGuard:
         ctx = _make_ctx(budget=False)
 
         with pytest.raises(ValueError):
-            async with _managed_execution(
-                _make_config(), [{"role": "user", "content": "hi"}], ctx
-            ):
+            async with _managed_execution(_make_config(), [{"role": "user", "content": "hi"}], ctx):
                 raise ValueError("boom")
 
         cb = ctx.get_circuit_breaker.return_value
@@ -143,9 +135,7 @@ class TestManagedExecutionGuard:
         """No budget operations when budget_guard is None."""
         ctx = _make_ctx(budget=False)
 
-        async with _managed_execution(
-            _make_config(), [{"role": "user", "content": "hi"}], ctx
-        ):
+        async with _managed_execution(_make_config(), [{"role": "user", "content": "hi"}], ctx):
             pass
 
         # No budget guard — nothing to assert on, just verify no exception
@@ -240,9 +230,7 @@ class TestStreamModelInvariants:
                 "llm_council.stages.execution.fallback_astream",
                 side_effect=RuntimeError("stream broke"),
             ):
-                result, usage = await stream_model(
-                    _make_config(), [{"role": "user", "content": "hi"}], ctx
-                )
+                result, usage = await stream_model(_make_config(), [{"role": "user", "content": "hi"}], ctx)
 
         assert result == "fallback response"
         # Budget was reserved once for stream, released on failure
@@ -273,14 +261,12 @@ class TestStreamModelInvariants:
                 # Make fallback raise CancelledError
                 async def cancelled_stream(*args, **kwargs):
                     raise asyncio.CancelledError()
-                    yield  # noqa: unreachable - make it a generator
+                    yield  # noqa: F811
 
                 mock_fallback.side_effect = asyncio.CancelledError()
 
                 with pytest.raises(asyncio.CancelledError):
-                    await stream_model(
-                        _make_config(), [{"role": "user", "content": "hi"}], ctx
-                    )
+                    await stream_model(_make_config(), [{"role": "user", "content": "hi"}], ctx)
 
         ctx.budget_guard.arelease.assert_awaited_once()
         ctx.budget_guard.acommit.assert_not_awaited()

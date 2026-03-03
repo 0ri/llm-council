@@ -28,9 +28,7 @@ logger = logging.getLogger("llm-council")
 _DEFAULT_OUTPUT_ESTIMATE = 2000  # Conservative output token estimate
 
 
-def _estimate_request_tokens(
-    messages: list[dict[str, str]], system_message: str | None = None
-) -> tuple[int, int]:
+def _estimate_request_tokens(messages: list[dict[str, str]], system_message: str | None = None) -> tuple[int, int]:
     """Return (estimated_input_tokens, estimated_output_tokens) for a request."""
     input_text = " ".join(m.get("content", "") for m in messages)
     if system_message:
@@ -230,9 +228,7 @@ async def stream_model(
             if isinstance(provider, StreamingProvider):
                 stream_result = provider.astream("", guard.model_config, MODEL_TIMEOUT, request=guard.request)
             else:
-                stream_result = fallback_astream(
-                    provider, "", guard.model_config, MODEL_TIMEOUT, request=guard.request
-                )
+                stream_result = fallback_astream(provider, "", guard.model_config, MODEL_TIMEOUT, request=guard.request)
             async for chunk in stream_result:
                 accumulated += chunk
                 if on_chunk is not None:

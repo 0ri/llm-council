@@ -84,7 +84,9 @@ class TestBedrockProvider:
             mock_client.invoke_model.return_value = mock_response
 
             provider = BedrockProvider()
-            config = BedrockModelConfig(name="claude-opus", provider="bedrock", model_id="claude-opus", budget_tokens=10000)
+            config = BedrockModelConfig(
+                name="claude-opus", provider="bedrock", model_id="claude-opus", budget_tokens=10000
+            )
             result, usage = await provider.query("Test prompt", config, timeout=60)
 
             # Should return the text block, not the thinking block
@@ -163,7 +165,9 @@ class TestBedrockProvider:
             }
 
             provider = BedrockProvider()
-            config = BedrockModelConfig(name="claude-opus", provider="bedrock", model_id="us.anthropic.claude-opus-4-6-v1:0")
+            config = BedrockModelConfig(
+                name="claude-opus", provider="bedrock", model_id="us.anthropic.claude-opus-4-6-v1:0"
+            )
             await provider.query("Test", config, timeout=10)
 
             # Check model_id was passed correctly
@@ -288,7 +292,9 @@ class TestPoeProvider:
             mock_get_bot.return_value = self._mock_empty_stream()
 
             provider = PoeProvider(api_key="test-key")
-            config = PoeModelConfig(name="GPT-5.3-Codex", provider="poe", bot_name="GPT-5.3-Codex", reasoning_effort="high")
+            config = PoeModelConfig(
+                name="GPT-5.3-Codex", provider="poe", bot_name="GPT-5.3-Codex", reasoning_effort="high"
+            )
             await provider.query("Complex problem", config, timeout=30)
 
             call_args = mock_get_bot.call_args
@@ -302,7 +308,9 @@ class TestPoeProvider:
             mock_get_bot.return_value = self._mock_empty_stream()
 
             provider = PoeProvider(api_key="test-key")
-            config = PoeModelConfig(name="Gemini-3.1-Pro", provider="poe", bot_name="Gemini-3.1-Pro", reasoning_effort="high")
+            config = PoeModelConfig(
+                name="Gemini-3.1-Pro", provider="poe", bot_name="Gemini-3.1-Pro", reasoning_effort="high"
+            )
             await provider.query("Complex problem", config, timeout=30)
 
             call_args = mock_get_bot.call_args
@@ -317,7 +325,13 @@ class TestPoeProvider:
             mock_get_bot.return_value = self._mock_empty_stream()
 
             provider = PoeProvider(api_key="test-key")
-            config = PoeModelConfig(name="GPT-5.3-Codex", provider="poe", bot_name="GPT-5.3-Codex", web_search=True, reasoning_effort="high")
+            config = PoeModelConfig(
+                name="GPT-5.3-Codex",
+                provider="poe",
+                bot_name="GPT-5.3-Codex",
+                web_search=True,
+                reasoning_effort="high",
+            )
             await provider.query("Complex search", config, timeout=30)
 
             call_args = mock_get_bot.call_args

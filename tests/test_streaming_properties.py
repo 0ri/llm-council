@@ -414,7 +414,7 @@ def test_stage1_output_ordering_invariant_to_completion_order(
 # --- Property Test 5: Output equivalence regardless of streaming mode ---
 # Feature: streaming-output, Property 5: Output equivalence regardless of streaming mode
 
-from llm_council.models import AggregateRanking, Stage1Result, Stage3Result  # noqa: E402
+from llm_council.models import AggregateRanking, Stage1Result, Stage3Result  # noqa: E402, F811
 from llm_council.stages import stage3_synthesize_final  # noqa: E402
 
 
