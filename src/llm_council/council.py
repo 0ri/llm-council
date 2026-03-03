@@ -14,7 +14,7 @@ import os
 import sys
 import time
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
 from pydantic import ValidationError
@@ -125,7 +125,7 @@ def validate_config(config: dict) -> list[str]:
 
 async def run_council(
     question: str,
-    config: dict[str, Any],
+    config: CouncilConfig | Mapping[str, Any],
     print_manifest: bool = False,
     log_dir: str | None = None,
     context_factory: Any = None,
@@ -150,8 +150,8 @@ async def run_council(
 
     Args:
         question: The user question to present to the council.
-        config: Council configuration dictionary (see ``validate_config``
-            for the expected schema).
+        config: Council configuration as a ``CouncilConfig`` instance or
+            a plain dict/Mapping (validated internally).
         print_manifest: If ``True``, write the run manifest as JSON to
             *stderr* after the run completes.
         log_dir: Directory path for JSONL run logs.  When set, a
@@ -188,13 +188,18 @@ async def run_council(
     # Track start time for manifest
     start_time = time.time()
 
-    # Validate configuration first
-    errors = validate_config(config)
-    if errors:
-        error_msg = "Configuration errors:\n"
-        for e in errors:
-            error_msg += f"  - {e}\n"
-        return error_msg
+    # Accept both CouncilConfig and plain dict
+    if isinstance(config, CouncilConfig):
+        # Already validated — skip re-validation
+        pass
+    else:
+        # Validate configuration first
+        errors = validate_config(config)
+        if errors:
+            error_msg = "Configuration errors:\n"
+            for e in errors:
+                error_msg += f"  - {e}\n"
+            return error_msg
 
     # Sanitize user input
     question = sanitize_user_input(question)
