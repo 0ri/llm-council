@@ -21,8 +21,6 @@ if TYPE_CHECKING:
     from ..models import ModelConfig
     from . import ProviderRequest, StreamResult
 
-from ..models import coerce_model_config
-
 logger = logging.getLogger("llm-council")
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
@@ -141,7 +139,6 @@ class OpenRouterProvider:
         """
         from . import MAX_RETRIES
 
-        model_config = coerce_model_config(model_config)
         # Use typed request if provided, fall back to minimal defaults
         if request is not None:
             messages = request.messages
@@ -209,7 +206,6 @@ class OpenRouterProvider:
         """
         from . import MAX_RETRIES, StreamResult, UsageTrackingStream
 
-        model_config = coerce_model_config(model_config)
         # Use typed request if provided, fall back to minimal defaults
         if request is not None:
             messages = request.messages

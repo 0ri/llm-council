@@ -18,8 +18,6 @@ if TYPE_CHECKING:
     from ..models import ModelConfig
     from . import ProviderRequest, StreamResult
 
-from ..models import coerce_model_config
-
 logger = logging.getLogger("llm-council")
 
 
@@ -124,7 +122,6 @@ class PoeProvider:
         """
         from . import MAX_RETRIES
 
-        model_config = coerce_model_config(model_config)
         bot_name = model_config.bot_name
 
         # Use typed request if provided, fall back to legacy model_config keys
@@ -181,7 +178,6 @@ class PoeProvider:
         """
         from . import StreamResult
 
-        model_config = coerce_model_config(model_config)
         bot_name = model_config.bot_name
 
         if request is not None:

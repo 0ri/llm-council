@@ -21,8 +21,6 @@ if TYPE_CHECKING:
     from ..models import ModelConfig
     from . import ProviderRequest, StreamResult
 
-from ..models import coerce_model_config
-
 logger = logging.getLogger("llm-council")
 
 
@@ -96,7 +94,6 @@ class BedrockProvider:
         """
         from . import DEFAULT_MAX_TOKENS, MAX_RETRIES
 
-        model_config = coerce_model_config(model_config)
         # Extract model-specific parameters (BedrockModelConfig attributes)
         model_id = model_config.model_id
         budget_tokens = getattr(model_config, "budget_tokens", None)
@@ -185,7 +182,6 @@ class BedrockProvider:
         """
         from . import DEFAULT_MAX_TOKENS, MAX_RETRIES, StreamResult, UsageTrackingStream
 
-        model_config = coerce_model_config(model_config)
         model_id = model_config.model_id
         budget_tokens = getattr(model_config, "budget_tokens", None)
 

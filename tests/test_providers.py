@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 import pytest
 from botocore.exceptions import ClientError
 
+from llm_council.models import BedrockModelConfig, PoeModelConfig
 from llm_council.providers import ProviderRequest
 from llm_council.providers.bedrock import BedrockProvider
 from llm_council.providers.poe import PoeProvider
@@ -50,9 +51,8 @@ class TestBedrockProvider:
 
             # Test query
             provider = BedrockProvider()
-            result, usage = await provider.query(
-                "Test prompt", {"model_id": "test-model", "name": "Test Model"}, timeout=30
-            )
+            config = BedrockModelConfig(name="Test Model", provider="bedrock", model_id="test-model")
+            result, usage = await provider.query("Test prompt", config, timeout=30)
 
             assert result == "Test response"
             assert usage == {"input_tokens": 10, "output_tokens": 5}
@@ -84,9 +84,8 @@ class TestBedrockProvider:
             mock_client.invoke_model.return_value = mock_response
 
             provider = BedrockProvider()
-            result, usage = await provider.query(
-                "Test prompt", {"model_id": "claude-opus", "budget_tokens": 10000}, timeout=60
-            )
+            config = BedrockModelConfig(name="claude-opus", provider="bedrock", model_id="claude-opus", budget_tokens=10000)
+            result, usage = await provider.query("Test prompt", config, timeout=60)
 
             # Should return the text block, not the thinking block
             assert result == "Here is my answer"
@@ -108,8 +107,9 @@ class TestBedrockProvider:
             mock_client.invoke_model = slow_invoke
 
             provider = BedrockProvider()
+            config = BedrockModelConfig(name="test-model", provider="bedrock", model_id="test-model")
             with pytest.raises(asyncio.TimeoutError):
-                await provider.query("Test prompt", {"model_id": "test-model"}, timeout=0.1)
+                await provider.query("Test prompt", config, timeout=0.1)
 
     @pytest.mark.asyncio
     async def test_retryable_error(self):
@@ -127,7 +127,8 @@ class TestBedrockProvider:
             ]
 
             provider = BedrockProvider()
-            result, _ = await provider.query("Test", {"model_id": "test"}, timeout=10)
+            config = BedrockModelConfig(name="test", provider="bedrock", model_id="test")
+            result, _ = await provider.query("Test", config, timeout=10)
 
             assert result == "Success"
             assert mock_client.invoke_model.call_count == 2
@@ -144,8 +145,9 @@ class TestBedrockProvider:
             mock_client.invoke_model.side_effect = ClientError(error_response, "invoke_model")
 
             provider = BedrockProvider()
+            config = BedrockModelConfig(name="test", provider="bedrock", model_id="test")
             with pytest.raises(ClientError):
-                await provider.query("Test", {"model_id": "test"}, timeout=10)
+                await provider.query("Test", config, timeout=10)
 
             # Should not retry
             assert mock_client.invoke_model.call_count == 1
@@ -161,7 +163,8 @@ class TestBedrockProvider:
             }
 
             provider = BedrockProvider()
-            await provider.query("Test", {"model_id": "us.anthropic.claude-opus-4-6-v1:0"}, timeout=10)
+            config = BedrockModelConfig(name="claude-opus", provider="bedrock", model_id="us.anthropic.claude-opus-4-6-v1:0")
+            await provider.query("Test", config, timeout=10)
 
             # Check model_id was passed correctly
             call_args = mock_client.invoke_model.call_args
@@ -178,7 +181,8 @@ class TestBedrockProvider:
             }
 
             provider = BedrockProvider()
-            await provider.query("Test", {"model_id": "test", "budget_tokens": 5000}, timeout=10)
+            config = BedrockModelConfig(name="test", provider="bedrock", model_id="test", budget_tokens=5000)
+            await provider.query("Test", config, timeout=10)
 
             # Check that thinking mode was enabled
             call_args = mock_client.invoke_model.call_args
@@ -221,7 +225,8 @@ class TestPoeProvider:
             mock_get_bot.return_value = mock_stream()
 
             provider = PoeProvider(api_key="test-key")
-            result, usage = await provider.query("Test", {"bot_name": "TestBot"}, timeout=30)
+            config = PoeModelConfig(name="TestBot", provider="poe", bot_name="TestBot")
+            result, usage = await provider.query("Test", config, timeout=30)
 
             assert result == "Hello world"
             assert usage is None  # Poe doesn't provide token counts
@@ -242,7 +247,8 @@ class TestPoeProvider:
             mock_get_bot.return_value = mock_stream()
 
             provider = PoeProvider(api_key="test-key")
-            result, _ = await provider.query("Test", {"bot_name": "TestBot"}, timeout=30)
+            config = PoeModelConfig(name="TestBot", provider="poe", bot_name="TestBot")
+            result, _ = await provider.query("Test", config, timeout=30)
 
             assert result == "This is a streaming response."
 
@@ -253,7 +259,8 @@ class TestPoeProvider:
             mock_get_bot.return_value = self._mock_empty_stream()
 
             provider = PoeProvider(api_key="test-key")
-            await provider.query("Search query", {"bot_name": "GPT-5.3-Codex", "web_search": True}, timeout=30)
+            config = PoeModelConfig(name="GPT-5.3-Codex", provider="poe", bot_name="GPT-5.3-Codex", web_search=True)
+            await provider.query("Search query", config, timeout=30)
 
             # Check that the flag was added to the message
             call_args = mock_get_bot.call_args
@@ -267,7 +274,8 @@ class TestPoeProvider:
             mock_get_bot.return_value = self._mock_empty_stream()
 
             provider = PoeProvider(api_key="test-key")
-            await provider.query("Search query", {"bot_name": "Gemini-3.1-Pro", "web_search": True}, timeout=30)
+            config = PoeModelConfig(name="Gemini-3.1-Pro", provider="poe", bot_name="Gemini-3.1-Pro", web_search=True)
+            await provider.query("Search query", config, timeout=30)
 
             call_args = mock_get_bot.call_args
             messages = call_args[1]["messages"]
@@ -280,9 +288,8 @@ class TestPoeProvider:
             mock_get_bot.return_value = self._mock_empty_stream()
 
             provider = PoeProvider(api_key="test-key")
-            await provider.query(
-                "Complex problem", {"bot_name": "GPT-5.3-Codex", "reasoning_effort": "high"}, timeout=30
-            )
+            config = PoeModelConfig(name="GPT-5.3-Codex", provider="poe", bot_name="GPT-5.3-Codex", reasoning_effort="high")
+            await provider.query("Complex problem", config, timeout=30)
 
             call_args = mock_get_bot.call_args
             messages = call_args[1]["messages"]
@@ -295,9 +302,8 @@ class TestPoeProvider:
             mock_get_bot.return_value = self._mock_empty_stream()
 
             provider = PoeProvider(api_key="test-key")
-            await provider.query(
-                "Complex problem", {"bot_name": "Gemini-3.1-Pro", "reasoning_effort": "high"}, timeout=30
-            )
+            config = PoeModelConfig(name="Gemini-3.1-Pro", provider="poe", bot_name="Gemini-3.1-Pro", reasoning_effort="high")
+            await provider.query("Complex problem", config, timeout=30)
 
             call_args = mock_get_bot.call_args
             messages = call_args[1]["messages"]
@@ -311,11 +317,8 @@ class TestPoeProvider:
             mock_get_bot.return_value = self._mock_empty_stream()
 
             provider = PoeProvider(api_key="test-key")
-            await provider.query(
-                "Complex search",
-                {"bot_name": "GPT-5.3-Codex", "web_search": True, "reasoning_effort": "high"},
-                timeout=30,
-            )
+            config = PoeModelConfig(name="GPT-5.3-Codex", provider="poe", bot_name="GPT-5.3-Codex", web_search=True, reasoning_effort="high")
+            await provider.query("Complex search", config, timeout=30)
 
             call_args = mock_get_bot.call_args
             messages = call_args[1]["messages"]
@@ -334,7 +337,8 @@ class TestPoeProvider:
             ]
 
             provider = PoeProvider(api_key="test-key")
-            result, _ = await provider.query("Test", {"bot_name": "TestBot"}, timeout=30)
+            config = PoeModelConfig(name="TestBot", provider="poe", bot_name="TestBot")
+            result, _ = await provider.query("Test", config, timeout=30)
 
             assert result == "Success"
             assert mock_get_bot.call_count == 2
@@ -346,8 +350,9 @@ class TestPoeProvider:
             mock_get_bot.side_effect = Exception("401 Unauthorized")
 
             provider = PoeProvider(api_key="test-key")
+            config = PoeModelConfig(name="TestBot", provider="poe", bot_name="TestBot")
             with pytest.raises(Exception, match="401"):
-                await provider.query("Test", {"bot_name": "TestBot"}, timeout=30)
+                await provider.query("Test", config, timeout=30)
 
             # Should not retry
             assert mock_get_bot.call_count == 1
@@ -359,8 +364,9 @@ class TestPoeProvider:
             mock_get_bot.side_effect = Exception("Bot 'InvalidBot' does not exist")
 
             provider = PoeProvider(api_key="test-key")
+            config = PoeModelConfig(name="InvalidBot", provider="poe", bot_name="InvalidBot")
             with pytest.raises(Exception, match="Bot"):
-                await provider.query("Test", {"bot_name": "InvalidBot"}, timeout=30)
+                await provider.query("Test", config, timeout=30)
 
             assert mock_get_bot.call_count == 1
 
@@ -375,7 +381,8 @@ class TestPoeProvider:
                 messages=[{"role": "user", "content": "Hello"}],
                 system_message="You are a helpful assistant",
             )
-            await provider.query("Ignored", {"bot_name": "TestBot"}, timeout=30, request=request)
+            config = PoeModelConfig(name="TestBot", provider="poe", bot_name="TestBot")
+            await provider.query("Ignored", config, timeout=30, request=request)
 
             call_args = mock_get_bot.call_args
             messages = call_args[1]["messages"]
@@ -397,7 +404,8 @@ class TestPoeProvider:
                     {"role": "user", "content": "How are you?"},
                 ],
             )
-            await provider.query("", {"bot_name": "TestBot"}, timeout=30, request=request)
+            config = PoeModelConfig(name="TestBot", provider="poe", bot_name="TestBot")
+            await provider.query("", config, timeout=30, request=request)
 
             call_args = mock_get_bot.call_args
             messages = call_args[1]["messages"]

@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
+from llm_council.models import OpenRouterModelConfig
 from llm_council.providers import ProviderRequest
 from llm_council.providers.openrouter import (
     OpenRouterAPIError,
@@ -36,11 +37,8 @@ class TestOpenRouterProvider:
             mock_client.post = AsyncMock(return_value=mock_response)
             mock_client_fn.return_value = mock_client
 
-            result, usage = await provider.query(
-                "Test prompt",
-                {"model_id": "openai/gpt-4o", "name": "GPT-4o"},
-                timeout=30,
-            )
+            config = OpenRouterModelConfig(name="GPT-4o", provider="openrouter", model_id="openai/gpt-4o")
+            result, usage = await provider.query("Test prompt", config, timeout=30)
 
         assert result == "Hello from OpenRouter"
         assert usage == {"input_tokens": 15, "output_tokens": 8}
@@ -62,7 +60,8 @@ class TestOpenRouterProvider:
             mock_client.post = AsyncMock(return_value=mock_response)
             mock_client_fn.return_value = mock_client
 
-            _, usage = await provider.query("Test", {"model_id": "test"}, timeout=30)
+            config = OpenRouterModelConfig(name="test", provider="openrouter", model_id="test")
+            _, usage = await provider.query("Test", config, timeout=30)
 
         assert usage is not None
         assert usage["input_tokens"] == 100
@@ -84,7 +83,8 @@ class TestOpenRouterProvider:
             mock_client.post = AsyncMock(return_value=mock_response)
             mock_client_fn.return_value = mock_client
 
-            result, usage = await provider.query("Test", {"model_id": "test"}, timeout=30)
+            config = OpenRouterModelConfig(name="test", provider="openrouter", model_id="test")
+            result, usage = await provider.query("Test", config, timeout=30)
 
         assert result == "Response"
         assert usage is None
@@ -105,7 +105,7 @@ class TestOpenRouterProvider:
             mock_client.post = AsyncMock(return_value=mock_response)
             mock_client_fn.return_value = mock_client
 
-            config = {"provider": "openrouter", "model_id": "test"}
+            config = OpenRouterModelConfig(name="test", provider="openrouter", model_id="test")
             request = ProviderRequest(
                 messages=[{"role": "user", "content": "Hello"}],
                 system_message="You are a helpful assistant",
@@ -134,12 +134,7 @@ class TestOpenRouterProvider:
             mock_client.post = AsyncMock(return_value=mock_response)
             mock_client_fn.return_value = mock_client
 
-            config = {
-                "provider": "openrouter",
-                "model_id": "test",
-                "temperature": 0.7,
-                "max_tokens": 4096,
-            }
+            config = OpenRouterModelConfig(name="test", provider="openrouter", model_id="test", temperature=0.7, max_tokens=4096)
             await provider.query("Test", config, timeout=30)
 
             call_args = mock_client.post.call_args
@@ -161,8 +156,9 @@ class TestOpenRouterProvider:
             mock_client.post = AsyncMock(return_value=mock_response)
             mock_client_fn.return_value = mock_client
 
+            config = OpenRouterModelConfig(name="test", provider="openrouter", model_id="test")
             with pytest.raises(OpenRouterAPIError) as exc_info:
-                await provider.query("Test", {"model_id": "test"}, timeout=30)
+                await provider.query("Test", config, timeout=30)
 
             assert exc_info.value.status_code == 401
 
@@ -235,7 +231,8 @@ class TestOpenRouterProvider:
             mock_client.post = AsyncMock(return_value=mock_response)
             mock_client_fn.return_value = mock_client
 
-            result, _ = await provider.query("Test", {"model_id": "test"}, timeout=30)
+            config = OpenRouterModelConfig(name="test", provider="openrouter", model_id="test")
+            result, _ = await provider.query("Test", config, timeout=30)
 
         assert result == ""
 

@@ -333,6 +333,7 @@ class TestOpenRouterStreamingRetry:
     @pytest.mark.asyncio
     async def test_streaming_error_status_closes_response(self):
         """When streaming gets a non-200 status, the response should be closed."""
+        from llm_council.models import OpenRouterModelConfig
         from llm_council.providers.openrouter import OpenRouterProvider
 
         provider = OpenRouterProvider(api_key="test-key")
@@ -352,11 +353,8 @@ class TestOpenRouterStreamingRetry:
         mock_client.send = AsyncMock(return_value=mock_resp)
 
         with patch.object(provider, "_get_client", return_value=mock_client):
-            stream = provider.astream(
-                "",
-                {"provider": "openrouter", "model_id": "test", "name": "test"},
-                timeout=30,
-            )
+            config = OpenRouterModelConfig(name="test", provider="openrouter", model_id="test")
+            stream = provider.astream("", config, timeout=30)
             with pytest.raises(OpenRouterAPIError) as exc_info:
                 async for _ in stream:
                     pass
