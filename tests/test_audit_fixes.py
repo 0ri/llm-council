@@ -169,7 +169,7 @@ class TestBudgetExhaustionPropagation:
         """When query_model returns budget_exceeded, _get_ranking should propagate it."""
         ctx = _make_ctx()
 
-        with patch("llm_council.stages.query_model") as mock_qm:
+        with patch("llm_council.stages.stage2.query_model") as mock_qm:
             mock_qm.return_value = (None, {"budget_exceeded": True})
 
             result, token_usage = await _get_ranking(

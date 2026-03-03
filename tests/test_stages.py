@@ -104,7 +104,7 @@ class TestStage2CollectRankings:
         ]
 
         # Mock the query_model function
-        with patch("llm_council.stages.query_model") as mock_query:
+        with patch("llm_council.stages.stage2.query_model") as mock_query:
             # Setup mock to return valid rankings
             async def mock_query_response(*args, **kwargs):
                 return {
@@ -163,7 +163,7 @@ class TestStage2CollectRankings:
             {"name": "M4", "provider": "bedrock", "model_id": "test4"},
         ]
 
-        with patch("llm_council.stages.query_model") as mock_query:
+        with patch("llm_council.stages.stage2.query_model") as mock_query:
             # Track what prompts each model receives
             prompts_by_model = {}
 
@@ -214,7 +214,7 @@ class TestStage2CollectRankings:
             {"name": "M2", "provider": "bedrock", "model_id": "test2"},
         ]
 
-        with patch("llm_council.stages.query_model") as mock_query:
+        with patch("llm_council.stages.stage2.query_model") as mock_query:
 
             async def mock_query_response(*args, **kwargs):
                 # Each model only ranks one other (due to self-exclusion)
@@ -251,7 +251,7 @@ class TestStage2CollectRankings:
             {"name": "M1", "provider": "bedrock", "model_id": "test1"},
         ]
 
-        with patch("llm_council.stages.query_model") as mock_query:
+        with patch("llm_council.stages.stage2.query_model") as mock_query:
             # This shouldn't be called since M1 has no one else to rank
             mock_query.side_effect = AsyncMock(return_value=({"content": "Should not be called"}, None))
 
@@ -285,7 +285,7 @@ class TestStage2QualityGate:
 
         call_counts: dict[str, int] = {}
 
-        with patch("llm_council.stages.query_model") as mock_query:
+        with patch("llm_council.stages.stage2.query_model") as mock_query:
 
             async def mock_query_response(model_config, messages, *args, **kwargs):
                 name = model_config.name
@@ -326,7 +326,7 @@ class TestStage2QualityGate:
 
         call_counts: dict[str, int] = {}
 
-        with patch("llm_council.stages.query_model") as mock_query:
+        with patch("llm_council.stages.stage2.query_model") as mock_query:
 
             async def mock_query_response(model_config, messages, *args, **kwargs):
                 name = model_config.name
@@ -364,7 +364,7 @@ class TestStage2QualityGate:
 
         call_counts: dict[str, int] = {}
 
-        with patch("llm_council.stages.query_model") as mock_query:
+        with patch("llm_council.stages.stage2.query_model") as mock_query:
 
             async def mock_query_response(model_config, messages, *args, **kwargs):
                 name = model_config.name
@@ -406,7 +406,7 @@ class TestStage2QualityGate:
 
         call_counts: dict[str, int] = {}
 
-        with patch("llm_council.stages.query_model") as mock_query:
+        with patch("llm_council.stages.stage2.query_model") as mock_query:
 
             async def mock_query_response(model_config, messages, *args, **kwargs):
                 name = model_config.name
@@ -450,7 +450,7 @@ class TestBudgetEnforcement:
         model_config = {"name": "TestModel", "provider": "poe", "bot_name": "TestBot"}
         messages = [{"role": "user", "content": "This message will exceed the tiny budget " * 10}]
 
-        with patch("llm_council.stages.CouncilContext.get_provider") as mock_get_provider:
+        with patch("llm_council.context.CouncilContext.get_provider") as mock_get_provider:
             result, usage = await query_model(model_config, messages, ctx)
 
             assert result is None

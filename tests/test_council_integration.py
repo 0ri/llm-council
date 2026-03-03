@@ -394,7 +394,7 @@ class TestRunCouncilIntegration:
 
         with (
             patch.dict(os.environ, {"POE_API_KEY": "test-key"}),
-            patch("llm_council.stages.random.Random", return_value=mock_rng),
+            patch("llm_council.stages.stage2.random.Random", return_value=mock_rng),
         ):
             result = await run_council(
                 "Chairman fallback test",

@@ -392,7 +392,7 @@ def test_stage1_output_ordering_invariant_to_completion_order(
         # Disable cache so all models go through query_models_parallel
         ctx.cache = None
 
-        with patch("llm_council.stages.query_models_parallel", mock_qmp):
+        with patch("llm_council.stages.stage1.query_models_parallel", mock_qmp):
             stage1_results, _usages = await stage1_collect_responses("test question", council_models, ctx)
 
         # The results must be in the original config order
