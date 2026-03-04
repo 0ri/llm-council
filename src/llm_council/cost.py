@@ -12,39 +12,11 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+from ._token_estimation import estimate_tokens
+
 logger = logging.getLogger("llm-council")
 
-_ENCODER = None
-HAS_TIKTOKEN = False
-_TIKTOKEN_LOADED = False
-
-
-def _get_encoder():
-    """Lazy-load tiktoken encoder on first use."""
-    global _ENCODER, HAS_TIKTOKEN, _TIKTOKEN_LOADED
-    if not _TIKTOKEN_LOADED:
-        _TIKTOKEN_LOADED = True
-        try:
-            import tiktoken
-
-            _ENCODER = tiktoken.get_encoding("cl100k_base")
-            HAS_TIKTOKEN = True
-        except ImportError:
-            _ENCODER = None
-            HAS_TIKTOKEN = False
-    return _ENCODER
-
-
-def estimate_tokens(text: str) -> int:
-    """Estimate token count for text.
-
-    Uses tiktoken cl100k_base encoding when available.
-    Falls back to 4 chars/token heuristic.
-    """
-    encoder = _get_encoder()
-    if encoder is not None:
-        return len(encoder.encode(text))
-    return len(text) // 4
+__all__ = ["CouncilCostTracker", "ModelUsage", "estimate_tokens"]
 
 
 @dataclass

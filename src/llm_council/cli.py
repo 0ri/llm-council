@@ -256,55 +256,54 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main():
-    """Main entry point."""
-    parser = _build_parser()
-    args = parser.parse_args()
+def _cmd_list_models(args: argparse.Namespace) -> None:
+    """Handle --list-models: list available models from all providers."""
+    setup_logging(verbose=args.verbose)
+    asyncio.run(_list_available_models())
 
-    # --list-models works without a question
-    if args.list_models:
-        setup_logging(verbose=args.verbose)
-        asyncio.run(_list_available_models())
-        return
 
-    # --clear-cache works without a question
-    if args.clear_cache:
-        from .cache import DEFAULT_CACHE_DB, ResponseCache
+def _cmd_clear_cache() -> None:
+    """Handle --clear-cache: delete all cache entries."""
+    from .cache import DEFAULT_CACHE_DB, ResponseCache
 
-        if not DEFAULT_CACHE_DB.exists():
-            print("Cache is already empty", file=sys.stderr)
-            sys.exit(0)
-        cache = ResponseCache()
-        count = cache.clear()
-        size = _format_file_size(DEFAULT_CACHE_DB.stat().st_size)
-        print(f"Cleared {count} cache entries ({size})", file=sys.stderr)
-        cache.close()
+    if not DEFAULT_CACHE_DB.exists():
+        print("Cache is already empty", file=sys.stderr)
         sys.exit(0)
+    cache = ResponseCache()
+    count = cache.clear()
+    size = _format_file_size(DEFAULT_CACHE_DB.stat().st_size)
+    print(f"Cleared {count} cache entries ({size})", file=sys.stderr)
+    cache.close()
+    sys.exit(0)
 
-    # --cache-stats works without a question
-    if args.cache_stats:
-        from .cache import DEFAULT_CACHE_DB, ResponseCache
 
-        if not DEFAULT_CACHE_DB.exists():
-            print("No cache database found", file=sys.stderr)
-            sys.exit(0)
-        if args.cache_ttl is not None:
-            resolved_ttl = args.cache_ttl
-        elif args.config:
-            config = load_config(args.config)
-            resolved_ttl = config.get("cache_ttl", ResponseCache.DEFAULT_TTL)
-        else:
-            resolved_ttl = ResponseCache.DEFAULT_TTL
-        cache = ResponseCache(ttl=resolved_ttl)
-        s = cache.stats
-        size = _format_file_size(DEFAULT_CACHE_DB.stat().st_size)
-        print(f"Cache entries: {s['total']}", file=sys.stderr)
-        print(f"Expired entries: {s['expired']}", file=sys.stderr)
-        print(f"Database size: {size}", file=sys.stderr)
-        cache.close()
+def _cmd_cache_stats(args: argparse.Namespace) -> None:
+    """Handle --cache-stats: print cache statistics."""
+    from .cache import DEFAULT_CACHE_DB, ResponseCache
+
+    if not DEFAULT_CACHE_DB.exists():
+        print("No cache database found", file=sys.stderr)
         sys.exit(0)
+    if args.cache_ttl is not None:
+        resolved_ttl = args.cache_ttl
+    elif args.config:
+        config = load_config(args.config)
+        resolved_ttl = config.get("cache_ttl", ResponseCache.DEFAULT_TTL)
+    else:
+        resolved_ttl = ResponseCache.DEFAULT_TTL
+    cache = ResponseCache(ttl=resolved_ttl)
+    s = cache.stats
+    size = _format_file_size(DEFAULT_CACHE_DB.stat().st_size)
+    print(f"Cache entries: {s['total']}", file=sys.stderr)
+    print(f"Expired entries: {s['expired']}", file=sys.stderr)
+    print(f"Database size: {size}", file=sys.stderr)
+    cache.close()
+    sys.exit(0)
 
-    # Read question from file if --question-file is given
+
+def _cmd_run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    """Handle the default council run command."""
+    # Resolve question
     if args.question_file:
         try:
             with open(args.question_file) as f:
@@ -316,15 +315,11 @@ def main():
     else:
         parser.error("No question provided (use positional arg or --question-file)")
 
-    # Setup logging
     setup_logging(verbose=args.verbose)
-
-    # Load config
     config = load_config(args.config)
 
     from .council import run_council
 
-    # --dry-run: print summary and exit without API calls
     if args.dry_run:
         _print_dry_run(config, question)
         return
@@ -346,10 +341,8 @@ def main():
             )
         question = f"<project>\n{flattened.markdown}\n</project>\n\n{question}"
 
-    # Resolve cache TTL
     resolved_ttl = _resolve_ttl(args, config)
 
-    # Build streaming callback when --stream is enabled
     on_chunk = None
     if args.stream:
 
@@ -359,7 +352,6 @@ def main():
 
         on_chunk = _stream_to_stdout
 
-    # Run council
     from .run_options import RunOptions
 
     opts = RunOptions(
@@ -374,26 +366,40 @@ def main():
     )
     result = asyncio.run(run_council(question, config, options=opts))
 
-    # Output result
-    if args.stream:
+    _print_result(result, stream=args.stream)
+
+
+def _print_result(result: str, *, stream: bool) -> None:
+    """Print council output, handling streamed vs non-streamed modes."""
+    if stream:
         # Synthesis was already streamed to stdout via on_chunk callback.
         # Print only the rankings/metadata portion to avoid duplicate output.
         marker = "### Synthesized Answer"
         idx = result.find(marker)
         if idx != -1:
-            # Print a newline to separate streamed synthesis from rankings
             print()
-            # Print rankings (everything before the synthesis section)
             rankings_part = result[:idx].rstrip()
             if rankings_part:
                 print(rankings_part)
-            # Preserve the manifest comment block if present
             manifest_marker = "\n<!-- Run Manifest"
             manifest_idx = result.find(manifest_marker)
             if manifest_idx != -1:
                 print(result[manifest_idx:])
         else:
-            # Marker not found (e.g. stage < 3), print everything
             print(result)
     else:
         print(result)
+
+
+def main():
+    """Main entry point."""
+    parser = _build_parser()
+    args = parser.parse_args()
+
+    if args.list_models:
+        return _cmd_list_models(args)
+    if args.clear_cache:
+        return _cmd_clear_cache()
+    if args.cache_stats:
+        return _cmd_cache_stats(args)
+    _cmd_run(args, parser)

@@ -278,53 +278,23 @@ class BudgetGuard:
             self.release(estimated_input_tokens, estimated_output_tokens, model_name)
 
 
-def create_budget_guard(config: dict[str, Any] | Any | None) -> BudgetGuard | None:
-    """Create a BudgetGuard from config, or None if no budget configured.
-
-    Accepts either a ``BudgetConfig`` Pydantic model (preferred), a raw
-    council configuration dict (legacy), or ``None``.
+def create_budget_guard(config: Any | None) -> BudgetGuard | None:
+    """Create a BudgetGuard from a ``BudgetConfig``, or ``None``.
 
     Args:
-        config: A ``BudgetConfig`` instance, a council configuration dict
-            containing an optional ``"budget"`` key, or ``None``.
+        config: A ``BudgetConfig`` Pydantic model instance, or ``None``.
 
     Returns:
         BudgetGuard instance or None if no budget limits configured.
     """
-    from .models import BudgetConfig
-
     if config is None:
         return None
 
-    # Typed BudgetConfig path (from validated CouncilConfig)
-    if isinstance(config, BudgetConfig):
-        if config.max_tokens is None and config.max_cost_usd is None:
-            return None
-        return BudgetGuard(
-            max_tokens=config.max_tokens,
-            max_cost_usd=config.max_cost_usd,
-            input_cost_per_1k=config.input_cost_per_1k,
-            output_cost_per_1k=config.output_cost_per_1k,
-        )
-
-    # Legacy dict path
-    budget_config = config.get("budget", {})
-    if not budget_config:
+    if config.max_tokens is None and config.max_cost_usd is None:
         return None
-
-    max_tokens = budget_config.get("max_tokens")
-    max_cost_usd = budget_config.get("max_cost_usd")
-
-    if max_tokens is None and max_cost_usd is None:
-        return None
-
-    # Use custom pricing if provided, otherwise defaults
-    input_cost = budget_config.get("input_cost_per_1k", 0.01)
-    output_cost = budget_config.get("output_cost_per_1k", 0.03)
-
     return BudgetGuard(
-        max_tokens=max_tokens,
-        max_cost_usd=max_cost_usd,
-        input_cost_per_1k=input_cost,
-        output_cost_per_1k=output_cost,
+        max_tokens=config.max_tokens,
+        max_cost_usd=config.max_cost_usd,
+        input_cost_per_1k=config.input_cost_per_1k,
+        output_cost_per_1k=config.output_cost_per_1k,
     )

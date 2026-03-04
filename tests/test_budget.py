@@ -3,6 +3,7 @@
 import pytest
 
 from llm_council.budget import BudgetExceededError, BudgetGuard, create_budget_guard
+from llm_council.models import BudgetConfig
 
 
 def _reserve_and_commit(guard, input_tokens, output_tokens, model_name):
@@ -120,52 +121,39 @@ class TestBudgetGuard:
 class TestCreateBudgetGuard:
     """Test the create_budget_guard factory function."""
 
-    def test_no_budget_config(self):
-        """Test with no budget config."""
-        config = {"council_models": [], "chairman": {}}
-        guard = create_budget_guard(config)
-        assert guard is None
+    def test_none_config(self):
+        """Test with None returns None."""
+        assert create_budget_guard(None) is None
 
-    def test_empty_budget_config(self):
-        """Test with empty budget config."""
-        config = {"budget": {}}
-        guard = create_budget_guard(config)
+    def test_no_limits(self):
+        """Test with no limits returns None."""
+        guard = create_budget_guard(BudgetConfig())
         assert guard is None
 
     def test_token_limit_only(self):
         """Test with only token limit."""
-        config = {"budget": {"max_tokens": 5000}}
-        guard = create_budget_guard(config)
+        guard = create_budget_guard(BudgetConfig(max_tokens=5000))
         assert guard is not None
         assert guard.max_tokens == 5000
         assert guard.max_cost_usd is None
 
     def test_cost_limit_only(self):
         """Test with only cost limit."""
-        config = {"budget": {"max_cost_usd": 10.0}}
-        guard = create_budget_guard(config)
+        guard = create_budget_guard(BudgetConfig(max_cost_usd=10.0))
         assert guard is not None
         assert guard.max_tokens is None
         assert guard.max_cost_usd == 10.0
 
     def test_both_limits(self):
         """Test with both limits."""
-        config = {"budget": {"max_tokens": 5000, "max_cost_usd": 10.0}}
-        guard = create_budget_guard(config)
+        guard = create_budget_guard(BudgetConfig(max_tokens=5000, max_cost_usd=10.0))
         assert guard is not None
         assert guard.max_tokens == 5000
         assert guard.max_cost_usd == 10.0
 
     def test_custom_pricing(self):
         """Test with custom pricing in config."""
-        config = {
-            "budget": {
-                "max_tokens": 5000,
-                "input_cost_per_1k": 0.005,
-                "output_cost_per_1k": 0.015,
-            }
-        }
-        guard = create_budget_guard(config)
+        guard = create_budget_guard(BudgetConfig(max_tokens=5000, input_cost_per_1k=0.005, output_cost_per_1k=0.015))
         assert guard is not None
         assert guard.input_cost_per_1k == 0.005
         assert guard.output_cost_per_1k == 0.015

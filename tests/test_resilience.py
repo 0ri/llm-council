@@ -75,7 +75,7 @@ class TestCostTracker:
         assert "Stage 3" in summary
 
     def test_token_estimation(self):
-        with patch("llm_council.cost._ENCODER", None):
+        with patch("llm_council._token_estimation._ENCODER", None):
             tracker = CouncilCostTracker()
             # 400 chars input, 800 chars output -> ~100 in, ~200 out tokens (fallback)
             tracker.record("Model-A", 1, "x" * 400, "y" * 800)
@@ -85,9 +85,13 @@ class TestCostTracker:
 
     def test_estimate_tokens_with_tiktoken(self):
         # Trigger lazy load
-        from llm_council.cost import _get_encoder
+        try:
+            import tiktoken  # noqa: F401
 
-        if _get_encoder() is None:
+            has_tiktoken = True
+        except ImportError:
+            has_tiktoken = False
+        if not has_tiktoken:
             pytest.skip("tiktoken not installed")
         # Known string: "Hello, world!" should give a reasonable token count
         count = estimate_tokens("Hello, world!")
@@ -95,7 +99,7 @@ class TestCostTracker:
         assert estimate_tokens("") == 0
 
     def test_estimate_tokens_fallback(self):
-        with patch("llm_council.cost._ENCODER", None):
+        with patch("llm_council._token_estimation._ENCODER", None):
             assert estimate_tokens("abcd") == 1
             assert estimate_tokens("x" * 400) == 100
             assert estimate_tokens("") == 0

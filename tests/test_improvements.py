@@ -163,7 +163,7 @@ class TestActualTokenCounting:
 
     def test_cost_tracker_with_actual_tokens(self):
         """Test that actual tokens are preferred over estimates."""
-        with patch("llm_council.cost._ENCODER", None):
+        with patch("llm_council._token_estimation._ENCODER", None):
             tracker = CouncilCostTracker()
 
             # Record with actual token counts
@@ -200,7 +200,7 @@ class TestActualTokenCounting:
 
     def test_cost_summary_with_mixed_tokens(self):
         """Test summary output with mixed actual/estimated tokens."""
-        with patch("llm_council.cost._ENCODER", None):
+        with patch("llm_council._token_estimation._ENCODER", None):
             tracker = CouncilCostTracker()
 
             # Stage 1: one with actual, one estimated

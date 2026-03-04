@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from .cost import estimate_tokens
+from ._token_estimation import estimate_tokens
 
 # Extensions that are always skipped (binary / non-text)
 BINARY_EXTENSIONS = frozenset(
