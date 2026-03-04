@@ -124,3 +124,64 @@ real    0.285s (24% faster)
 - `RunOptions` dataclass consolidates 9 `run_council` parameters
 - Buffered JSONL persistence with per-stage flush
 - All 493 tests pass, all 7 golden output tests pass
+
+---
+
+## Tier 1–2 Optimization (2026-03-04)
+
+Addressed findings from a multi-model council audit of the codebase.
+
+### Bug Fixes
+
+- **Config duality bug (P0):** `config.get()` was called on a Pydantic `CouncilConfig` object in `run_council()`, which would raise `AttributeError` if a caller passed a typed config directly. Config is now parsed once early into `validated: CouncilConfig` with typed attribute access throughout.
+- **Thread-local connection leak:** `ResponseCache.close()` only closed the main connection but not thread-local connections created via `_get_thread_conn()`. Added `_thread_conns` registry with lock-protected cleanup.
+
+### Structural Changes
+
+| Change | Files | Impact |
+|--------|-------|--------|
+| Parse config once, use typed access | `council.py`, `budget.py` | Eliminated 9 `config.get()` calls after parse |
+| `defaults.py` constants module | New file + 4 importers | Unified `DEFAULT_CACHE_TTL`, `DEFAULT_SOFT_TIMEOUT`, `DEFAULT_STAGE2_RETRIES` |
+| `resolve_template()` helper | `prompts.py`, `stage2.py`, `stage3.py` | De-duplicated prompt template resolution |
+| `_build_request_body()` in Bedrock | `bedrock.py` | De-duplicated body construction between `query()` and `astream()` |
+| Cache `_do_get`/`_do_put` helpers | `cache.py` | De-duplicated sync/thread-local get/put logic |
+| `_SCHEMA_SQL` constant | `cache.py` | Eliminated duplicated CREATE TABLE statement |
+| `RunManifest.create(run_id=...)` | `manifest.py`, `council.py` | Eliminated post-hoc `manifest.run_id = run_id` |
+| Shared test fixtures | `conftest.py` + 7 test files | Replaced 7 local `_make_ctx`/`_make_ctx_factory` factories |
+| Cache fault logging | `stage1.py` | `logger.warning` → `logger.exception` for full traceback |
+| Deprecate `calculate_borda_score` | `aggregation.py` | `DeprecationWarning` on unused function |
+
+### File Sizes (changed files)
+
+| File | LOC (before → after) |
+|------|---------------------|
+| `council.py` | 456 → 451 |
+| `budget.py` | 378 → 394 |
+| `cache.py` | 328 → 342 |
+| `prompts.py` | 82 → 107 |
+| `bedrock.py` | 263 → 259 |
+| `aggregation.py` | 185 → 195 |
+| `manifest.py` | 104 → 109 |
+| `defaults.py` | *(new)* → 14 |
+
+### Test File Sizes (changed files)
+
+| File | LOC (before → after) |
+|------|---------------------|
+| `conftest.py` | 67 → 122 |
+| `test_council_integration.py` | 408 → 386 |
+| `test_golden_outputs.py` | 298 → 271 |
+| `test_stages.py` | 484 → 461 |
+| `test_stream_model.py` | 268 → 265 |
+| `test_streaming_integration.py` | 244 → 227 |
+| `test_audit_fixes.py` | 367 → 349 |
+| `test_improvements.py` | 323 → 311 |
+| **Test total (changed)** | **2,466 → 2,392 (−74)** |
+
+### Summary
+
+- 1 commit, 22 files changed (+367 −362, net −9 LOC)
+- Fixed latent P0 correctness bug (config duality)
+- Fixed thread-local SQLite connection leak
+- Source +79 LOC (new helpers, typed paths, deprecation), tests −74 LOC (shared fixtures)
+- All 493 tests pass, ruff clean

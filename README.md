@@ -351,6 +351,7 @@ src/llm_council/
 ├── context.py               # Per-run dependency-injection container (lazy provider imports)
 ├── cost.py                  # Token counting (tiktoken) and per-stage cost estimation
 ├── council.py               # Main orchestrator: validate_config, run_council
+├── defaults.py              # Shared default constants (cache TTL, timeouts, retry counts)
 ├── flattener.py             # Codebase flattener: directory → single markdown document
 ├── formatting.py            # Markdown output formatting for all stage combinations
 ├── manifest.py              # Run manifest: metadata, timestamps, config hash

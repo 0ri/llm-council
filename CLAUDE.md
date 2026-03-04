@@ -48,6 +48,7 @@ src/llm_council/
 ├── council.py              # Main orchestrator: validate_config, run_council
 ├── run_options.py           # RunOptions dataclass for run_council parameters
 ├── models.py               # Pydantic config models and result types
+├── defaults.py             # Shared default constants (cache TTL, timeouts, retries)
 ├── context.py              # Per-run DI container (lazy provider imports)
 ├── stages/                 # 3-stage pipeline package
 │   ├── __init__.py         # Re-exports for backward compatibility
