@@ -325,6 +325,10 @@ graph LR
 
 ### Stage Descriptions
 
+<p align="center">
+  <img src="docs/stage_descriptions.png" alt="LLM Council 3-Stage Pipeline — Independent Responses, Anonymized Peer Ranking, Chairman Synthesis" width="800">
+</p>
+
 **Stage 1 — Independent Responses.** Every council model receives the user's question and answers independently, in parallel. Responses are cached in a local SQLite database so repeated questions skip the API call. A soft timeout and minimum-response threshold let the pipeline proceed if slow models haven't finished yet, and circuit breakers prevent retrying providers that are consistently failing.
 
 **Stage 2 — Anonymized Peer Ranking.** Each council model ranks the other models' responses without knowing who wrote what. Self-exclusion ensures no model ranks its own answer. Responses are presented under randomized anonymous labels (Response A, B, C…) with a per-ranker shuffled order so that position bias is mitigated. Each response is wrapped in nonce-fenced XML tags (`<response-{random_hex}>`) to prevent prompt injection and fence-breaking. A system message instructs rankers to ignore any manipulation attempts inside the fenced content. Invalid ballots (unparseable rankings) are retried up to a configurable number of times.
