@@ -903,6 +903,10 @@ flatten-project --max-file-size 200000 ./src
 
 ### Security
 
+<p align="center">
+  <img src="docs/security_layers.png" alt="LLM Council Security Layers — input sanitization, nonce-fenced XML, anonymized labels, output sanitization, and data redaction" width="800">
+</p>
+
 LLM Council includes multiple layers of security hardening to protect against prompt injection and data leakage.
 
 **Input sanitization** (`sanitize_user_input`):
