@@ -93,49 +93,34 @@ class Provider(typing.Protocol):
 
 
 class StreamResult:
-    """Wrapper for streaming results that captures usage metadata."""
+    """Wrapper for streaming results that captures usage metadata.
+
+    Providers call ``set_usage()`` as usage info arrives during streaming.
+    When the inner async iterator is exhausted, any pending usage is
+    promoted to ``self.usage`` automatically.
+    """
 
     def __init__(self, aiter: typing.AsyncIterator[str]):
         self._aiter = aiter
         self.usage: dict[str, typing.Any] | None = None
         self.accumulated: str = ""
+        self._pending_usage: dict[str, typing.Any] | None = None
+
+    def set_usage(self, usage: dict[str, typing.Any]) -> None:
+        """Record usage metadata to be captured when the stream exhausts."""
+        self._pending_usage = usage
 
     def __aiter__(self) -> StreamResult:
         return self
 
     async def __anext__(self) -> str:
-        chunk = await self._aiter.__anext__()
-        self.accumulated += chunk
-        return chunk
-
-
-class UsageTrackingStream:
-    """Wraps an async generator and captures usage metadata on exhaustion.
-
-    Unlike monkeypatching ``__anext__`` on an async generator (which is
-    unreliable), this class IS the async iterator, so ``__anext__`` is a
-    proper method. Providers call ``set_usage()`` as usage info arrives
-    during streaming, and when the inner iterator is exhausted the usage
-    is copied onto the ``StreamResult``.
-    """
-
-    def __init__(self, aiter: typing.AsyncIterator[str], result: StreamResult):
-        self._aiter = aiter
-        self._result = result
-        self._usage: dict[str, typing.Any] | None = None
-
-    def set_usage(self, usage: dict[str, typing.Any]) -> None:
-        self._usage = usage
-
-    def __aiter__(self) -> UsageTrackingStream:
-        return self
-
-    async def __anext__(self) -> str:
         try:
-            return await self._aiter.__anext__()
+            chunk = await self._aiter.__anext__()
+            self.accumulated += chunk
+            return chunk
         except StopAsyncIteration:
-            if self._usage:
-                self._result.usage = self._usage
+            if self._pending_usage is not None:
+                self.usage = self._pending_usage
             raise
 
 
@@ -241,6 +226,5 @@ __all__ = [
     "ProviderRequest",
     "StreamResult",
     "StreamingProvider",
-    "UsageTrackingStream",
     "fallback_astream",
 ]

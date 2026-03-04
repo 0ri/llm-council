@@ -177,7 +177,6 @@ class BedrockProvider:
 
     def astream(
         self,
-        prompt: str,
         model_config: ModelConfig,
         timeout: int,
         request: ProviderRequest | None = None,
@@ -187,17 +186,17 @@ class BedrockProvider:
         Returns:
             StreamResult wrapping an async generator of text chunks.
         """
-        from . import MAX_RETRIES, StreamResult, UsageTrackingStream
+        from . import MAX_RETRIES, StreamResult
 
         model_id = model_config.model_id
         budget_tokens = getattr(model_config, "budget_tokens", None)
 
-        # Use typed request if provided, fall back to minimal defaults
+        # Use typed request if provided
         if request is not None:
             messages = request.messages
             system_message = request.system_message
         else:
-            messages = [{"role": "user", "content": prompt}]
+            messages = []
             system_message = None
 
         request_body = self._build_request_body(messages, system_message, budget_tokens)
@@ -247,13 +246,9 @@ class BedrockProvider:
                     if "output_tokens" in delta_usage:
                         usage_info["output_tokens"] = delta_usage["output_tokens"]
 
-            # Set usage on the wrapper when the generator finishes normally
+            # Set usage on the result when the generator finishes normally
             if usage_info:
-                wrapper.set_usage(usage_info)
+                result.set_usage(usage_info)
 
-        gen = _generate()
-        result = StreamResult(gen)
-        wrapper = UsageTrackingStream(gen, result)
-        result._aiter = wrapper
-
+        result = StreamResult(_generate())
         return result

@@ -204,7 +204,7 @@ class OpenRouterProvider:
         Returns:
             StreamResult wrapping an async generator of text chunks.
         """
-        from . import MAX_RETRIES, StreamResult, UsageTrackingStream
+        from . import MAX_RETRIES, StreamResult
 
         # Use typed request if provided
         if request is not None:
@@ -281,15 +281,11 @@ class OpenRouterProvider:
             finally:
                 await resp.aclose()
 
-            # Set usage on the wrapper when the generator finishes normally
+            # Set usage on the result when the generator finishes normally
             if usage_info:
-                wrapper.set_usage(usage_info)
+                result.set_usage(usage_info)
 
-        gen = _generate()
-        result = StreamResult(gen)
-        wrapper = UsageTrackingStream(gen, result)
-        result._aiter = wrapper
-
+        result = StreamResult(_generate())
         return result
 
     async def list_models(self) -> list[dict[str, str]]:
