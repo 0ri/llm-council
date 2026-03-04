@@ -12,14 +12,9 @@ Requirements: 10.1, 10.3
 
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 
 from llm_council.budget import BudgetGuard
-from llm_council.context import CouncilContext
-from llm_council.cost import CouncilCostTracker
-from llm_council.progress import ProgressManager
 from llm_council.providers import StreamResult
 from llm_council.stages import stream_model
 
@@ -73,19 +68,6 @@ class _GoodStreamingProvider:
         return result
 
 
-def _make_ctx(**overrides) -> CouncilContext:
-    """Create a minimal CouncilContext for unit tests."""
-    ctx = CouncilContext(
-        poe_api_key="test-key",
-        cost_tracker=CouncilCostTracker(),
-        progress=ProgressManager(is_tty=False),
-    )
-    ctx.semaphore = asyncio.Semaphore(4)
-    for k, v in overrides.items():
-        setattr(ctx, k, v)
-    return ctx
-
-
 MODEL_CONFIG = {"provider": "bedrock", "name": "test-model"}
 MESSAGES = [{"role": "user", "content": "hello"}]
 
@@ -99,14 +81,14 @@ class TestStreamModelFallback:
     """Test mid-stream error triggers fallback to query_model."""
 
     @pytest.mark.asyncio
-    async def test_mid_stream_error_falls_back_to_query(self):
+    async def test_mid_stream_error_falls_back_to_query(self, make_ctx):
         """When astream raises mid-stream, stream_model falls back to query_model
         and returns the query result."""
         provider = _FailingStreamingProvider(
             chunks_before_error=["partial ", "text "],
             error=RuntimeError("connection lost"),
         )
-        ctx = _make_ctx()
+        ctx = make_ctx()
         ctx.providers["bedrock"] = provider
 
         text, usage = await stream_model(MODEL_CONFIG, MESSAGES, ctx)
@@ -116,7 +98,7 @@ class TestStreamModelFallback:
         assert usage == {"input_tokens": 10, "output_tokens": 20}
 
     @pytest.mark.asyncio
-    async def test_mid_stream_error_invokes_on_chunk_before_failure(self):
+    async def test_mid_stream_error_invokes_on_chunk_before_failure(self, make_ctx):
         """on_chunk is called for chunks yielded before the error, but the
         final result comes from the fallback query."""
         received: list[str] = []
@@ -128,7 +110,7 @@ class TestStreamModelFallback:
             chunks_before_error=["hello ", "world"],
             error=RuntimeError("boom"),
         )
-        ctx = _make_ctx()
+        ctx = make_ctx()
         ctx.providers["bedrock"] = provider
 
         text, _usage = await stream_model(MODEL_CONFIG, MESSAGES, ctx, on_chunk=on_chunk)
@@ -144,7 +126,7 @@ class TestStreamModelCircuitBreaker:
     """Test circuit breaker interactions with stream_model."""
 
     @pytest.mark.asyncio
-    async def test_circuit_breaker_records_failure_on_astream_error(self):
+    async def test_circuit_breaker_records_failure_on_astream_error(self, make_ctx):
         """When astream raises, the circuit breaker records a failure.
 
         Note: the fallback query_model also succeeds and calls record_success,
@@ -155,7 +137,7 @@ class TestStreamModelCircuitBreaker:
             chunks_before_error=[],
             error=RuntimeError("fail"),
         )
-        ctx = _make_ctx()
+        ctx = make_ctx()
         ctx.providers["bedrock"] = provider
 
         cb = ctx.get_circuit_breaker("bedrock:test-model")
@@ -175,10 +157,10 @@ class TestStreamModelCircuitBreaker:
         assert failure_called
 
     @pytest.mark.asyncio
-    async def test_circuit_breaker_records_success_on_normal_completion(self):
+    async def test_circuit_breaker_records_success_on_normal_completion(self, make_ctx):
         """When astream completes normally, the circuit breaker records success."""
         provider = _GoodStreamingProvider(["hello", " world"])
-        ctx = _make_ctx()
+        ctx = make_ctx()
         ctx.providers["bedrock"] = provider
 
         # Pre-seed a failure so we can verify it gets reset
@@ -192,11 +174,11 @@ class TestStreamModelCircuitBreaker:
         assert cb._state == "closed"
 
     @pytest.mark.asyncio
-    async def test_open_circuit_breaker_returns_empty_string(self):
+    async def test_open_circuit_breaker_returns_empty_string(self, make_ctx):
         """When the circuit breaker is open, stream_model returns ('', None)
         without calling the provider."""
         provider = _GoodStreamingProvider(["should", "not", "reach"])
-        ctx = _make_ctx()
+        ctx = make_ctx()
         ctx.providers["bedrock"] = provider
 
         # Force the circuit breaker open
@@ -215,11 +197,11 @@ class TestStreamModelBudgetGuard:
     """Test budget guard reserve/commit/release with stream_model."""
 
     @pytest.mark.asyncio
-    async def test_budget_reserve_called_before_streaming(self):
+    async def test_budget_reserve_called_before_streaming(self, make_ctx):
         """Budget guard reserve is called before the provider is invoked."""
         provider = _GoodStreamingProvider(["ok"], usage={"input_tokens": 5, "output_tokens": 10})
         budget = BudgetGuard(max_tokens=1_000_000)
-        ctx = _make_ctx(budget_guard=budget)
+        ctx = make_ctx(budget_guard=budget)
         ctx.providers["bedrock"] = provider
 
         assert budget.total_input_tokens == 0
@@ -230,12 +212,12 @@ class TestStreamModelBudgetGuard:
         assert budget.total_input_tokens > 0 or budget.total_output_tokens > 0
 
     @pytest.mark.asyncio
-    async def test_budget_commit_on_success(self):
+    async def test_budget_commit_on_success(self, make_ctx):
         """On successful streaming, budget guard commit adjusts to actual usage."""
         usage = {"input_tokens": 15, "output_tokens": 25}
         provider = _GoodStreamingProvider(["response"], usage=usage)
         budget = BudgetGuard(max_tokens=1_000_000)
-        ctx = _make_ctx(budget_guard=budget)
+        ctx = make_ctx(budget_guard=budget)
         ctx.providers["bedrock"] = provider
 
         await stream_model(MODEL_CONFIG, MESSAGES, ctx)
@@ -247,14 +229,14 @@ class TestStreamModelBudgetGuard:
         assert budget.queries[0]["model"] == "test-model"
 
     @pytest.mark.asyncio
-    async def test_budget_release_on_failure(self):
+    async def test_budget_release_on_failure(self, make_ctx):
         """On streaming failure, budget guard release returns the reservation."""
         provider = _FailingStreamingProvider(
             chunks_before_error=["partial"],
             error=RuntimeError("mid-stream error"),
         )
         budget = BudgetGuard(max_tokens=1_000_000)
-        ctx = _make_ctx(budget_guard=budget)
+        ctx = make_ctx(budget_guard=budget)
         ctx.providers["bedrock"] = provider
 
         await stream_model(MODEL_CONFIG, MESSAGES, ctx)
@@ -269,12 +251,12 @@ class TestStreamModelBudgetGuard:
         assert total >= 0  # budget wasn't left negative
 
     @pytest.mark.asyncio
-    async def test_budget_exceeded_returns_empty(self):
+    async def test_budget_exceeded_returns_empty(self, make_ctx):
         """When budget is exceeded, stream_model returns ('', None) without
         calling the provider."""
         provider = _GoodStreamingProvider(["should not reach"])
         budget = BudgetGuard(max_tokens=1)  # impossibly low
-        ctx = _make_ctx(budget_guard=budget)
+        ctx = make_ctx(budget_guard=budget)
         ctx.providers["bedrock"] = provider
 
         text, usage = await stream_model(MODEL_CONFIG, MESSAGES, ctx)

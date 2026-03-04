@@ -13,6 +13,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .defaults import DEFAULT_CACHE_TTL, DEFAULT_SOFT_TIMEOUT, DEFAULT_STAGE2_RETRIES
+
 
 def generate_response_labels(count: int) -> list[str]:
     """Generate anonymous response labels: 'Response A', 'Response B', etc."""
@@ -181,10 +183,10 @@ class CouncilConfig(BaseModel):
     chairman: ModelConfig | None = None
     budget: BudgetConfig | None = None
     prompts: PromptConfig | None = None
-    cache_ttl: int = 86400
-    soft_timeout: float = 300
+    cache_ttl: int = DEFAULT_CACHE_TTL
+    soft_timeout: float = DEFAULT_SOFT_TIMEOUT
     min_responses: int | None = None
-    stage2_retries: int = Field(default=1, ge=0, le=5)
+    stage2_retries: int = Field(default=DEFAULT_STAGE2_RETRIES, ge=0, le=5)
     min_valid_ballots: int | None = None
     strict_ballots: bool = False
 

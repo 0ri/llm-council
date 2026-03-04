@@ -4,20 +4,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from llm_council.context import CouncilContext
-from llm_council.cost import CouncilCostTracker
 from llm_council.models import Stage1Result
-from llm_council.progress import ProgressManager
 from llm_council.stages import build_ranking_prompt, stage2_collect_rankings
-
-
-def _make_ctx() -> CouncilContext:
-    """Create a CouncilContext suitable for unit tests."""
-    return CouncilContext(
-        poe_api_key="test-key",
-        cost_tracker=CouncilCostTracker(),
-        progress=ProgressManager(is_tty=False),
-    )
 
 
 def unpack_stage2_result(result):
@@ -89,7 +77,7 @@ class TestBuildRankingPrompt:
 
 class TestStage2CollectRankings:
     @pytest.mark.asyncio
-    async def test_self_exclusion(self):
+    async def test_self_exclusion(self, make_ctx):
         """Test that models don't rank their own responses."""
         user_query = "What is AI?"
         stage1_results = [
@@ -119,7 +107,7 @@ class TestStage2CollectRankings:
 
             mock_query.side_effect = mock_query_response
 
-            ctx = _make_ctx()
+            ctx = make_ctx()
             result = await stage2_collect_rankings(user_query, stage1_results, council_models, ctx)
             stage2_results, per_ranker_mappings = unpack_stage2_result(result)
 
@@ -147,7 +135,7 @@ class TestStage2CollectRankings:
             assert "Model2" in model3_options
 
     @pytest.mark.asyncio
-    async def test_different_orderings_per_ranker(self):
+    async def test_different_orderings_per_ranker(self, make_ctx):
         """Test that each ranker can see responses in different orders."""
         user_query = "Test question"
         stage1_results = [
@@ -186,7 +174,7 @@ class TestStage2CollectRankings:
 
             random.seed(42)
 
-            ctx = _make_ctx()
+            ctx = make_ctx()
             result = await stage2_collect_rankings(user_query, stage1_results, council_models, ctx)
             stage2_results, per_ranker_mappings = unpack_stage2_result(result)
 
@@ -202,7 +190,7 @@ class TestStage2CollectRankings:
                 print(f"Note: Only {len(unique_prompts)} unique prompt orderings out of 4 models")
 
     @pytest.mark.asyncio
-    async def test_variable_length_rankings(self):
+    async def test_variable_length_rankings(self, make_ctx):
         """Test that rankings can have different lengths due to self-exclusion."""
         user_query = "Question"
         stage1_results = [
@@ -228,7 +216,7 @@ class TestStage2CollectRankings:
 
             mock_query.side_effect = mock_query_response
 
-            ctx = _make_ctx()
+            ctx = make_ctx()
             result = await stage2_collect_rankings(user_query, stage1_results, council_models, ctx)
             stage2_results, per_ranker_mappings = unpack_stage2_result(result)
 
@@ -241,7 +229,7 @@ class TestStage2CollectRankings:
             assert "M1" in per_ranker_mappings["M2"].values()
 
     @pytest.mark.asyncio
-    async def test_empty_rankings_when_only_self(self):
+    async def test_empty_rankings_when_only_self(self, make_ctx):
         """Test behavior when a model is the only one that responded."""
         user_query = "Question"
         stage1_results = [
@@ -255,7 +243,7 @@ class TestStage2CollectRankings:
             # This shouldn't be called since M1 has no one else to rank
             mock_query.side_effect = AsyncMock(return_value=({"content": "Should not be called"}, None))
 
-            ctx = _make_ctx()
+            ctx = make_ctx()
             result = await stage2_collect_rankings(user_query, stage1_results, council_models, ctx)
             stage2_results, per_ranker_mappings = unpack_stage2_result(result)
 
@@ -269,7 +257,7 @@ class TestStage2QualityGate:
     """Tests for Stage 2 ballot retry (quality gate) logic."""
 
     @pytest.mark.asyncio
-    async def test_retry_invalid_ballot(self):
+    async def test_retry_invalid_ballot(self, make_ctx):
         """Invalid ballot on first call should be retried and succeed on second call."""
         user_query = "What is AI?"
         stage1_results = [
@@ -298,7 +286,7 @@ class TestStage2QualityGate:
 
             mock_query.side_effect = mock_query_response
 
-            ctx = _make_ctx()
+            ctx = make_ctx()
             result = await stage2_collect_rankings(
                 user_query, stage1_results, council_models, ctx, stage2_max_retries=1
             )
@@ -310,7 +298,7 @@ class TestStage2QualityGate:
             assert model2_result.is_valid_ballot is True
 
     @pytest.mark.asyncio
-    async def test_no_retry_when_all_valid(self):
+    async def test_no_retry_when_all_valid(self, make_ctx):
         """No extra calls should be made when all ballots are valid on first try."""
         user_query = "What is AI?"
         stage1_results = [
@@ -335,7 +323,7 @@ class TestStage2QualityGate:
 
             mock_query.side_effect = mock_query_response
 
-            ctx = _make_ctx()
+            ctx = make_ctx()
             result = await stage2_collect_rankings(
                 user_query, stage1_results, council_models, ctx, stage2_max_retries=2
             )
@@ -348,7 +336,7 @@ class TestStage2QualityGate:
                 assert r.is_valid_ballot is True
 
     @pytest.mark.asyncio
-    async def test_retry_exhausted_keeps_invalid(self):
+    async def test_retry_exhausted_keeps_invalid(self, make_ctx):
         """After max retries, an always-failing model should keep is_valid_ballot=False."""
         user_query = "What is AI?"
         stage1_results = [
@@ -378,7 +366,7 @@ class TestStage2QualityGate:
             mock_query.side_effect = mock_query_response
 
             max_retries = 3
-            ctx = _make_ctx()
+            ctx = make_ctx()
             result = await stage2_collect_rankings(
                 user_query, stage1_results, council_models, ctx, stage2_max_retries=max_retries
             )
@@ -390,7 +378,7 @@ class TestStage2QualityGate:
             assert model2_result.is_valid_ballot is False
 
     @pytest.mark.asyncio
-    async def test_retry_disabled_with_zero(self):
+    async def test_retry_disabled_with_zero(self, make_ctx):
         """When stage2_max_retries=0, no retries should happen even with invalid ballots."""
         user_query = "What is AI?"
         stage1_results = [
@@ -419,7 +407,7 @@ class TestStage2QualityGate:
 
             mock_query.side_effect = mock_query_response
 
-            ctx = _make_ctx()
+            ctx = make_ctx()
             result = await stage2_collect_rankings(
                 user_query, stage1_results, council_models, ctx, stage2_max_retries=0
             )
@@ -435,17 +423,12 @@ class TestBudgetEnforcement:
     """Test that budget guard blocks queries when limits are exceeded."""
 
     @pytest.mark.asyncio
-    async def test_budget_blocks_query(self):
+    async def test_budget_blocks_query(self, make_ctx):
         """query_model returns (None, None) when budget is exceeded."""
         from llm_council.budget import BudgetGuard
         from llm_council.stages import query_model
 
-        ctx = CouncilContext(
-            poe_api_key="test-key",
-            cost_tracker=CouncilCostTracker(),
-            progress=ProgressManager(is_tty=False),
-        )
-        ctx.budget_guard = BudgetGuard(max_tokens=10)  # very low limit
+        ctx = make_ctx(budget_guard=BudgetGuard(max_tokens=10))
 
         model_config = {"name": "TestModel", "provider": "poe", "bot_name": "TestBot"}
         messages = [{"role": "user", "content": "This message will exceed the tiny budget " * 10}]
@@ -458,17 +441,12 @@ class TestBudgetEnforcement:
             mock_get_provider.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_budget_allows_query_within_limit(self):
+    async def test_budget_allows_query_within_limit(self, make_ctx):
         """query_model proceeds when budget is not exceeded."""
         from llm_council.budget import BudgetGuard
         from llm_council.stages import query_model
 
-        ctx = CouncilContext(
-            poe_api_key="test-key",
-            cost_tracker=CouncilCostTracker(),
-            progress=ProgressManager(is_tty=False),
-        )
-        ctx.budget_guard = BudgetGuard(max_tokens=1_000_000)  # generous limit
+        ctx = make_ctx(budget_guard=BudgetGuard(max_tokens=1_000_000))
 
         model_config = {"name": "TestModel", "provider": "poe", "bot_name": "TestBot"}
         messages = [{"role": "user", "content": "Hi"}]

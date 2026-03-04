@@ -342,15 +342,36 @@ class BudgetGuard:
             self.release(estimated_input_tokens, estimated_output_tokens, model_name)
 
 
-def create_budget_guard(config: dict[str, Any]) -> BudgetGuard | None:
+def create_budget_guard(config: dict[str, Any] | Any | None) -> BudgetGuard | None:
     """Create a BudgetGuard from config, or None if no budget configured.
 
+    Accepts either a ``BudgetConfig`` Pydantic model (preferred), a raw
+    council configuration dict (legacy), or ``None``.
+
     Args:
-        config: Council configuration dict
+        config: A ``BudgetConfig`` instance, a council configuration dict
+            containing an optional ``"budget"`` key, or ``None``.
 
     Returns:
-        BudgetGuard instance or None if no budget limits configured
+        BudgetGuard instance or None if no budget limits configured.
     """
+    from .models import BudgetConfig
+
+    if config is None:
+        return None
+
+    # Typed BudgetConfig path (from validated CouncilConfig)
+    if isinstance(config, BudgetConfig):
+        if config.max_tokens is None and config.max_cost_usd is None:
+            return None
+        return BudgetGuard(
+            max_tokens=config.max_tokens,
+            max_cost_usd=config.max_cost_usd,
+            input_cost_per_1k=config.input_cost_per_1k,
+            output_cost_per_1k=config.output_cost_per_1k,
+        )
+
+    # Legacy dict path
     budget_config = config.get("budget", {})
     if not budget_config:
         return None

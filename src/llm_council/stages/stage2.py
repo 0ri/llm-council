@@ -19,7 +19,7 @@ from ..models import (
 )
 from ..parsing import parse_ranking_from_text
 from ..progress import ModelStatus
-from ..prompts import RANKING_PROMPT_TEMPLATE, RANKING_SYSTEM_MESSAGE_TEMPLATE
+from ..prompts import RANKING_PROMPT_TEMPLATE, RANKING_SYSTEM_MESSAGE_TEMPLATE, resolve_template
 from ..security import build_manipulation_resistance_msg, format_anonymized_responses, sanitize_model_output
 from .execution import query_model
 
@@ -131,9 +131,7 @@ async def stage2_collect_rankings(
     # System message for injection hardening (supports custom templates via config)
     base_resistance_msg = build_manipulation_resistance_msg()
     prompt_config = getattr(ctx, "prompt_config", None)
-    ranking_sys_template = (
-        prompt_config.resolve("ranking_system") if prompt_config else None
-    ) or RANKING_SYSTEM_MESSAGE_TEMPLATE
+    ranking_sys_template = resolve_template(prompt_config, "ranking_system", RANKING_SYSTEM_MESSAGE_TEMPLATE)
     system_message = ranking_sys_template.format(manipulation_resistance_msg=base_resistance_msg)
 
     # Build responses tuples for prompt construction, sanitizing outputs
@@ -181,7 +179,7 @@ async def stage2_collect_rankings(
         per_ranker_label_mappings[ranker_name] = label_to_model
 
         # Build the ranking prompt with randomized order
-        custom_ranking_user = prompt_config.resolve("ranking_user") if prompt_config else None
+        custom_ranking_user = resolve_template(prompt_config, "ranking_user", RANKING_PROMPT_TEMPLATE)
         ranking_prompt = build_ranking_prompt(
             user_query, filtered_responses, response_order, custom_template=custom_ranking_user
         )

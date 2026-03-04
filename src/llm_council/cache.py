@@ -19,6 +19,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from pydantic import BaseModel
 
+from .defaults import DEFAULT_CACHE_TTL
+
 logger = logging.getLogger("llm-council")
 
 DEFAULT_CACHE_DIR = Path.home() / ".llm-council"
@@ -36,6 +38,16 @@ _OUTPUT_AFFECTING_PARAMS = frozenset(
         "system_message",
     }
 )
+
+# Shared schema for the responses table (avoids duplication across connections)
+_SCHEMA_SQL = """\
+CREATE TABLE IF NOT EXISTS responses (
+    cache_key TEXT PRIMARY KEY,
+    model_name TEXT NOT NULL,
+    response TEXT NOT NULL,
+    token_usage TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)"""
 
 
 def _to_dict(model_config: dict[str, Any] | BaseModel | None) -> dict[str, Any] | None:
@@ -69,6 +81,49 @@ def _cache_key(
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
+# ---------------------------------------------------------------------------
+# Shared get/put helpers (connection-agnostic)
+# ---------------------------------------------------------------------------
+
+
+def _do_get(
+    conn: sqlite3.Connection,
+    key: str,
+    model_name: str,
+    ttl: int,
+) -> tuple[str, dict[str, Any] | None] | None:
+    """Look up a cached response on *conn*, returning ``None`` on miss."""
+    sql = (
+        "SELECT response, token_usage FROM responses"
+        " WHERE cache_key = ? AND created_at > datetime('now', ? || ' seconds')"
+    )
+    row = conn.execute(sql, (key, str(-ttl))).fetchone()
+    if row is None:
+        conn.execute("DELETE FROM responses WHERE cache_key = ?", (key,))
+        conn.commit()
+        return None
+    response = row[0]
+    token_usage = json.loads(row[1]) if row[1] else None
+    logger.debug(f"Cache hit for {model_name}")
+    return response, token_usage
+
+
+def _do_put(
+    conn: sqlite3.Connection,
+    key: str,
+    model_name: str,
+    response: str,
+    token_usage: dict[str, Any] | None,
+) -> None:
+    """Store a response on *conn*."""
+    conn.execute(
+        "INSERT OR REPLACE INTO responses (cache_key, model_name, response, token_usage) VALUES (?, ?, ?, ?)",
+        (key, model_name, response, json.dumps(token_usage) if token_usage else None),
+    )
+    conn.commit()
+    logger.debug(f"Cached response for {model_name}")
+
+
 class ResponseCache:
     """Manage an SQLite-backed cache for Stage 1 model responses.
 
@@ -88,7 +143,7 @@ class ResponseCache:
             or created (e.g., permission denied).
     """
 
-    DEFAULT_TTL = 86400  # 24 hours in seconds
+    DEFAULT_TTL = DEFAULT_CACHE_TTL
 
     def __init__(self, db_path: str | Path = DEFAULT_CACHE_DB, ttl: int = DEFAULT_TTL):
         self.db_path = Path(db_path)
@@ -96,21 +151,19 @@ class ResponseCache:
         self.ttl = ttl
         self._conn: sqlite3.Connection | None = None
         self._local = threading.local()
+        self._thread_conns: list[sqlite3.Connection] = []
+        self._thread_conns_lock = threading.Lock()
+
+    def _init_conn(self, conn: sqlite3.Connection) -> None:
+        """Ensure the schema exists on *conn*."""
+        conn.execute(_SCHEMA_SQL)
+        conn.commit()
 
     def _get_conn(self) -> sqlite3.Connection:
         """Return the SQLite connection, creating the table on first use."""
         if self._conn is None:
             self._conn = sqlite3.connect(str(self.db_path))
-            self._conn.execute("""
-                CREATE TABLE IF NOT EXISTS responses (
-                    cache_key TEXT PRIMARY KEY,
-                    model_name TEXT NOT NULL,
-                    response TEXT NOT NULL,
-                    token_usage TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            self._conn.commit()
+            self._init_conn(self._conn)
             # Startup cleanup of expired entries
             cursor = self._conn.execute(
                 "DELETE FROM responses WHERE created_at <= datetime('now', ? || ' seconds')",
@@ -126,17 +179,10 @@ class ResponseCache:
         conn = getattr(self._local, "conn", None)
         if conn is None:
             conn = sqlite3.connect(str(self.db_path))
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS responses (
-                    cache_key TEXT PRIMARY KEY,
-                    model_name TEXT NOT NULL,
-                    response TEXT NOT NULL,
-                    token_usage TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            conn.commit()
+            self._init_conn(conn)
             self._local.conn = conn
+            with self._thread_conns_lock:
+                self._thread_conns.append(conn)
         return conn
 
     def _get_sync(
@@ -151,20 +197,7 @@ class ResponseCache:
         Also usable directly for non-async callers (CLI, tests).
         """
         key = _cache_key(question, model_name, model_id, model_config)
-        conn = self._get_conn()
-        sql = (
-            "SELECT response, token_usage FROM responses"
-            " WHERE cache_key = ? AND created_at > datetime('now', ? || ' seconds')"
-        )
-        row = conn.execute(sql, (key, str(-self.ttl))).fetchone()
-        if row is None:
-            conn.execute("DELETE FROM responses WHERE cache_key = ?", (key,))
-            conn.commit()
-            return None
-        response = row[0]
-        token_usage = json.loads(row[1]) if row[1] else None
-        logger.debug(f"Cache hit for {model_name}")
-        return response, token_usage
+        return _do_get(self._get_conn(), key, model_name, self.ttl)
 
     def _put_sync(
         self,
@@ -180,13 +213,7 @@ class ResponseCache:
         Also usable directly for non-async callers (CLI, tests).
         """
         key = _cache_key(question, model_name, model_id, model_config)
-        conn = self._get_conn()
-        conn.execute(
-            "INSERT OR REPLACE INTO responses (cache_key, model_name, response, token_usage) VALUES (?, ?, ?, ?)",
-            (key, model_name, response, json.dumps(token_usage) if token_usage else None),
-        )
-        conn.commit()
-        logger.debug(f"Cached response for {model_name}")
+        _do_put(self._get_conn(), key, model_name, response, token_usage)
 
     def _get_in_thread(
         self,
@@ -197,20 +224,7 @@ class ResponseCache:
     ) -> tuple[str, dict[str, Any] | None] | None:
         """Thread-safe cache lookup using a thread-local connection."""
         key = _cache_key(question, model_name, model_id, model_config)
-        conn = self._get_thread_conn()
-        sql = (
-            "SELECT response, token_usage FROM responses"
-            " WHERE cache_key = ? AND created_at > datetime('now', ? || ' seconds')"
-        )
-        row = conn.execute(sql, (key, str(-self.ttl))).fetchone()
-        if row is None:
-            conn.execute("DELETE FROM responses WHERE cache_key = ?", (key,))
-            conn.commit()
-            return None
-        response = row[0]
-        token_usage = json.loads(row[1]) if row[1] else None
-        logger.debug(f"Cache hit for {model_name}")
-        return response, token_usage
+        return _do_get(self._get_thread_conn(), key, model_name, self.ttl)
 
     def _put_in_thread(
         self,
@@ -223,13 +237,7 @@ class ResponseCache:
     ) -> None:
         """Thread-safe cache store using a thread-local connection."""
         key = _cache_key(question, model_name, model_id, model_config)
-        conn = self._get_thread_conn()
-        conn.execute(
-            "INSERT OR REPLACE INTO responses (cache_key, model_name, response, token_usage) VALUES (?, ?, ?, ?)",
-            (key, model_name, response, json.dumps(token_usage) if token_usage else None),
-        )
-        conn.commit()
-        logger.debug(f"Cached response for {model_name}")
+        _do_put(self._get_thread_conn(), key, model_name, response, token_usage)
 
     # Synchronous public API (backwards-compatible for CLI, tests)
 
@@ -300,13 +308,20 @@ class ResponseCache:
         return count
 
     def close(self) -> None:
-        """Close the underlying SQLite connection.
+        """Close all SQLite connections (main and thread-local).
 
         Safe to call multiple times; subsequent calls are no-ops.
         """
         if self._conn is not None:
             self._conn.close()
             self._conn = None
+        with self._thread_conns_lock:
+            for conn in self._thread_conns:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            self._thread_conns.clear()
 
     @property
     def stats(self) -> dict[str, int]:

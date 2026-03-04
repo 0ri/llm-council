@@ -15,10 +15,7 @@ from unittest.mock import patch
 
 import pytest
 
-from llm_council.context import CouncilContext
-from llm_council.cost import CouncilCostTracker
 from llm_council.council import run_council
-from llm_council.progress import ProgressManager
 from llm_council.providers import StreamResult
 
 # ---------------------------------------------------------------------------
@@ -125,20 +122,6 @@ class _MockFailingStreamProvider:
 # ---------------------------------------------------------------------------
 
 
-def _make_ctx_factory(mock_provider):
-    """Return a context_factory callable that injects the mock provider."""
-
-    def factory():
-        ctx = CouncilContext(
-            poe_api_key="test-key",
-            cost_tracker=CouncilCostTracker(),
-            progress=ProgressManager(is_tty=False),
-        )
-        ctx.providers["poe"] = mock_provider
-        ctx.providers["bedrock"] = mock_provider
-        return ctx
-
-    return factory
 
 
 # ---------------------------------------------------------------------------
@@ -150,7 +133,7 @@ class TestStreamingIntegration:
     """End-to-end integration tests for streaming council runs."""
 
     @pytest.mark.asyncio
-    async def test_full_council_run_with_stream_true(self, sample_config):
+    async def test_full_council_run_with_stream_true(self, sample_config, make_ctx_factory):
         """A full council run with stream=True completes and produces valid output."""
         provider = _MockStreamingProvider()
         chunks_received: list[str] = []
@@ -162,7 +145,7 @@ class TestStreamingIntegration:
             result = await run_council(
                 "What is the meaning of life?",
                 sample_config,
-                context_factory=_make_ctx_factory(provider),
+                context_factory=make_ctx_factory(provider),
                 stream=True,
                 on_chunk=on_chunk,
             )
@@ -178,7 +161,7 @@ class TestStreamingIntegration:
         assert concatenated == provider._synthesis
 
     @pytest.mark.asyncio
-    async def test_stream_false_produces_identical_output(self, sample_config):
+    async def test_stream_false_produces_identical_output(self, sample_config, make_ctx_factory):
         """stream=False and stream=True produce identical final output.
 
         The run manifest contains a unique Run ID and Timestamp per run,
@@ -190,7 +173,7 @@ class TestStreamingIntegration:
             result_no_stream = await run_council(
                 "What is the meaning of life?",
                 sample_config,
-                context_factory=_make_ctx_factory(provider_no_stream),
+                context_factory=make_ctx_factory(provider_no_stream),
                 stream=False,
             )
 
@@ -205,7 +188,7 @@ class TestStreamingIntegration:
             result_stream = await run_council(
                 "What is the meaning of life?",
                 sample_config,
-                context_factory=_make_ctx_factory(provider_stream),
+                context_factory=make_ctx_factory(provider_stream),
                 stream=True,
                 on_chunk=on_chunk,
             )
@@ -219,7 +202,7 @@ class TestStreamingIntegration:
         assert strip_manifest(result_no_stream) == strip_manifest(result_stream)
 
     @pytest.mark.asyncio
-    async def test_stage3_fallback_on_mid_stream_error(self, sample_config):
+    async def test_stage3_fallback_on_mid_stream_error(self, sample_config, make_ctx_factory):
         """When astream fails mid-stream in Stage 3, the council falls back
         to query and still produces complete output."""
         provider = _MockFailingStreamProvider()
@@ -232,7 +215,7 @@ class TestStreamingIntegration:
             result = await run_council(
                 "Test question for fallback",
                 sample_config,
-                context_factory=_make_ctx_factory(provider),
+                context_factory=make_ctx_factory(provider),
                 stream=True,
                 on_chunk=on_chunk,
             )

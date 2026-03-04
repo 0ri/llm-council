@@ -11,7 +11,7 @@ from typing import Any
 from ..context import CouncilContext
 from ..models import AggregateRanking, ModelConfig, Stage1Result, Stage3Result, coerce_model_config
 from ..progress import ModelStatus
-from ..prompts import SYNTHESIS_PROMPT_TEMPLATE, SYNTHESIS_SYSTEM_MESSAGE_TEMPLATE
+from ..prompts import SYNTHESIS_PROMPT_TEMPLATE, SYNTHESIS_SYSTEM_MESSAGE_TEMPLATE, resolve_template
 from ..security import build_manipulation_resistance_msg, format_anonymized_responses, sanitize_model_output
 from .execution import query_model, stream_model
 
@@ -103,20 +103,18 @@ async def stage3_synthesize_final(
 
     # Build the synthesis prompt (supports custom templates via config)
     prompt_config = getattr(ctx, "prompt_config", None)
-    custom_synthesis_user = prompt_config.resolve("synthesis_user") if prompt_config else None
+    synthesis_user_template = resolve_template(prompt_config, "synthesis_user", SYNTHESIS_PROMPT_TEMPLATE)
     chairman_prompt = build_synthesis_prompt(
         user_query,
         response_tuples,
         label_to_model,
         aggregate_rankings,
-        custom_template=custom_synthesis_user,
+        custom_template=synthesis_user_template,
     )
 
     # System message for injection hardening (supports custom templates via config)
     base_resistance_msg = build_manipulation_resistance_msg()
-    synthesis_sys_template = (
-        prompt_config.resolve("synthesis_system") if prompt_config else None
-    ) or SYNTHESIS_SYSTEM_MESSAGE_TEMPLATE
+    synthesis_sys_template = resolve_template(prompt_config, "synthesis_system", SYNTHESIS_SYSTEM_MESSAGE_TEMPLATE)
     system_message = synthesis_sys_template.format(manipulation_resistance_msg=base_resistance_msg)
 
     messages = [{"role": "user", "content": chairman_prompt}]

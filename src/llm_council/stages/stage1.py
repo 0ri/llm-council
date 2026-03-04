@@ -50,7 +50,7 @@ async def stage1_collect_responses(
             try:
                 hit = await ctx.cache.aget(user_query, model_name, model_id, model_config)
             except (sqlite3.OperationalError, Exception):
-                logger.warning(f"Cache read failed for {model_name}, querying model instead")
+                logger.exception(f"Cache read failed for {model_name}, querying model instead")
                 hit = None
             if hit is not None:
                 response_text, token_usage = hit
@@ -91,7 +91,7 @@ async def stage1_collect_responses(
                         model_config,
                     )
                 except (sqlite3.OperationalError, Exception):
-                    logger.warning(f"Cache write failed for {model_name}, continuing without cache")
+                    logger.exception(f"Cache write failed for {model_name}, continuing without cache")
 
     # Merge cached + fresh responses
     all_responses = {**cached_responses, **responses}

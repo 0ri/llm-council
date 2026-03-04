@@ -80,6 +80,27 @@ class BedrockProvider:
             self._client = boto3.client("bedrock-runtime", region_name=self.region)
         return self._client
 
+    @staticmethod
+    def _build_request_body(
+        messages: list[dict[str, str]],
+        system_message: str | None,
+        budget_tokens: int | None,
+    ) -> dict:
+        """Build the Bedrock API request body from messages and config."""
+        from . import DEFAULT_MAX_TOKENS
+
+        bedrock_messages = [{"role": m["role"], "content": m["content"]} for m in messages]
+        body: dict = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": DEFAULT_MAX_TOKENS,
+            "messages": bedrock_messages,
+        }
+        if system_message:
+            body["system"] = system_message
+        if budget_tokens:
+            body["thinking"] = {"type": "enabled", "budget_tokens": budget_tokens}
+        return body
+
     async def query(
         self,
         prompt: str,
@@ -92,7 +113,7 @@ class BedrockProvider:
         Returns:
             Tuple of (response text, token usage dict or None)
         """
-        from . import DEFAULT_MAX_TOKENS, MAX_RETRIES
+        from . import MAX_RETRIES
 
         # Extract model-specific parameters (BedrockModelConfig attributes)
         model_id = model_config.model_id
@@ -106,6 +127,8 @@ class BedrockProvider:
             messages = [{"role": "user", "content": prompt}]
             system_message = None
 
+        request_body = self._build_request_body(messages, system_message, budget_tokens)
+
         @retry(
             stop=stop_after_attempt(MAX_RETRIES),
             wait=wait_exponential(multiplier=1, min=2, max=10),
@@ -114,22 +137,6 @@ class BedrockProvider:
         )
         def query_bedrock_inner():
             client = self._get_client()
-
-            # Convert to Bedrock message format
-            bedrock_messages = [{"role": m["role"], "content": m["content"]} for m in messages]
-
-            request_body = {
-                "anthropic_version": "bedrock-2023-05-31",
-                "max_tokens": DEFAULT_MAX_TOKENS,
-                "messages": bedrock_messages,
-            }
-
-            if system_message:
-                request_body["system"] = system_message
-
-            # Enable extended thinking if budget_tokens specified
-            if budget_tokens:
-                request_body["thinking"] = {"type": "enabled", "budget_tokens": budget_tokens}
 
             response = client.invoke_model(modelId=model_id, body=json.dumps(request_body))
 
@@ -180,7 +187,7 @@ class BedrockProvider:
         Returns:
             StreamResult wrapping an async generator of text chunks.
         """
-        from . import DEFAULT_MAX_TOKENS, MAX_RETRIES, StreamResult, UsageTrackingStream
+        from . import MAX_RETRIES, StreamResult, UsageTrackingStream
 
         model_id = model_config.model_id
         budget_tokens = getattr(model_config, "budget_tokens", None)
@@ -193,6 +200,8 @@ class BedrockProvider:
             messages = [{"role": "user", "content": prompt}]
             system_message = None
 
+        request_body = self._build_request_body(messages, system_message, budget_tokens)
+
         @retry(
             stop=stop_after_attempt(MAX_RETRIES),
             wait=wait_exponential(multiplier=1, min=2, max=10),
@@ -201,19 +210,6 @@ class BedrockProvider:
         )
         def stream_bedrock_inner():
             client = self._get_client()
-            bedrock_messages = [{"role": m["role"], "content": m["content"]} for m in messages]
-
-            request_body = {
-                "anthropic_version": "bedrock-2023-05-31",
-                "max_tokens": DEFAULT_MAX_TOKENS,
-                "messages": bedrock_messages,
-            }
-
-            if system_message:
-                request_body["system"] = system_message
-
-            if budget_tokens:
-                request_body["thinking"] = {"type": "enabled", "budget_tokens": budget_tokens}
 
             response = client.invoke_model_with_response_stream(modelId=model_id, body=json.dumps(request_body))
             return response

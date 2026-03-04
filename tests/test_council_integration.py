@@ -5,28 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from llm_council.context import CouncilContext
-from llm_council.cost import CouncilCostTracker
 from llm_council.council import run_council
-from llm_council.progress import ProgressManager
-
-
-def _make_ctx_factory(mock_provider, cache=None):
-    """Return a context_factory callable that injects *mock_provider*."""
-
-    def factory():
-        ctx = CouncilContext(
-            poe_api_key="test-key",
-            cost_tracker=CouncilCostTracker(),
-            progress=ProgressManager(is_tty=False),
-            cache=cache,
-        )
-        # Pre-inject the mock provider for both provider names
-        ctx.providers["poe"] = mock_provider
-        ctx.providers["bedrock"] = mock_provider
-        return ctx
-
-    return factory
 
 
 def _make_stage_router(stage1_responses, stage2_rankings, stage3_response, n_models):
@@ -49,7 +28,7 @@ def _make_stage_router(stage1_responses, stage2_rankings, stage3_response, n_mod
 
 class TestRunCouncilIntegration:
     @pytest.mark.asyncio
-    async def test_full_pipeline_with_mocked_providers(self, sample_config):
+    async def test_full_pipeline_with_mocked_providers(self, sample_config, make_ctx_factory):
         mock_responses = {
             "Model-A": "This is model A's response about the topic.",
             "Model-B": "This is model B's perspective on the matter.",
@@ -82,7 +61,7 @@ class TestRunCouncilIntegration:
             result = await run_council(
                 "What is the meaning of life?",
                 sample_config,
-                context_factory=_make_ctx_factory(mock_provider),
+                context_factory=make_ctx_factory(mock_provider),
             )
 
         assert "## LLM Council Response" in result
@@ -90,7 +69,7 @@ class TestRunCouncilIntegration:
         assert "Synthesized Answer" in result
 
     @pytest.mark.asyncio
-    async def test_graceful_degradation_on_model_failure(self, sample_config):
+    async def test_graceful_degradation_on_model_failure(self, sample_config, make_ctx_factory):
         call_count = {"n": 0}
 
         async def mock_query(prompt, model_config, timeout, **kwargs):
@@ -109,7 +88,7 @@ class TestRunCouncilIntegration:
             result = await run_council(
                 "Test question",
                 sample_config,
-                context_factory=_make_ctx_factory(mock_provider),
+                context_factory=make_ctx_factory(mock_provider),
             )
 
         assert "LLM Council Response" in result or "Error" in result
@@ -117,7 +96,7 @@ class TestRunCouncilIntegration:
     # --- Issue #3 + #5: New integration tests ---
 
     @pytest.mark.asyncio
-    async def test_all_stage1_models_fail(self, sample_config):
+    async def test_all_stage1_models_fail(self, sample_config, make_ctx_factory):
         """All models return None/raise in Stage 1 → graceful error, no crash."""
 
         async def mock_query(prompt, model_config, timeout, **kwargs):
@@ -130,14 +109,14 @@ class TestRunCouncilIntegration:
             result = await run_council(
                 "Test question",
                 sample_config,
-                context_factory=_make_ctx_factory(mock_provider),
+                context_factory=make_ctx_factory(mock_provider),
             )
 
         assert "Error" in result
         assert "failed" in result.lower() or "credentials" in result.lower()
 
     @pytest.mark.asyncio
-    async def test_stage2_all_invalid_ballots(self, sample_config):
+    async def test_stage2_all_invalid_ballots(self, sample_config, make_ctx_factory):
         """Rankings are unparseable → low ballot warning, Stage 3 still attempted."""
         call_count = {"n": 0}
 
@@ -159,14 +138,14 @@ class TestRunCouncilIntegration:
             result = await run_council(
                 "Test question",
                 sample_config,
-                context_factory=_make_ctx_factory(mock_provider),
+                context_factory=make_ctx_factory(mock_provider),
             )
 
         # Should still produce output (either warning + synthesis, or error)
         assert result  # Non-empty response
 
     @pytest.mark.asyncio
-    async def test_mixed_provider_failures(self, sample_config):
+    async def test_mixed_provider_failures(self, sample_config, make_ctx_factory):
         """1 of 3 models fails in Stage 1 → pipeline continues with 2 responses."""
         call_count = {"n": 0}
 
@@ -189,14 +168,14 @@ class TestRunCouncilIntegration:
             result = await run_council(
                 "Test question",
                 sample_config,
-                context_factory=_make_ctx_factory(mock_provider),
+                context_factory=make_ctx_factory(mock_provider),
             )
 
         # Pipeline should complete (with or without warnings)
         assert "LLM Council Response" in result or "Error" in result
 
     @pytest.mark.asyncio
-    async def test_cache_hit_path(self, sample_config, tmp_path):
+    async def test_cache_hit_path(self, sample_config, tmp_path, make_ctx_factory):
         """Run twice with cache → second run uses cache, fewer provider calls."""
         from llm_council.cache import ResponseCache
 
@@ -222,7 +201,7 @@ class TestRunCouncilIntegration:
             await run_council(
                 question,
                 sample_config,
-                context_factory=_make_ctx_factory(mock_provider, cache=cache),
+                context_factory=make_ctx_factory(mock_provider, cache=cache),
                 use_cache=True,
             )
 
@@ -237,7 +216,7 @@ class TestRunCouncilIntegration:
             await run_council(
                 question,
                 sample_config,
-                context_factory=_make_ctx_factory(mock_provider2, cache=cache),
+                context_factory=make_ctx_factory(mock_provider2, cache=cache),
                 use_cache=True,
             )
 
@@ -248,7 +227,7 @@ class TestRunCouncilIntegration:
         cache.close()
 
     @pytest.mark.asyncio
-    async def test_budget_exhaustion_mid_pipeline(self):
+    async def test_budget_exhaustion_mid_pipeline(self, make_ctx_factory):
         """Tiny budget → pipeline completes gracefully (budget error or partial)."""
         config = {
             "council_models": [
@@ -277,14 +256,14 @@ class TestRunCouncilIntegration:
             result = await run_council(
                 "Budget test",
                 config,
-                context_factory=_make_ctx_factory(mock_provider),
+                context_factory=make_ctx_factory(mock_provider),
             )
 
         # Should either complete with budget error or complete gracefully
         assert result  # Non-empty
 
     @pytest.mark.asyncio
-    async def test_single_model_config(self):
+    async def test_single_model_config(self, make_ctx_factory):
         """1 council model → Stage 1 works, Stage 2 has 1 ranker, Stage 3 synthesizes."""
         config = {
             "council_models": [
@@ -310,7 +289,7 @@ class TestRunCouncilIntegration:
             result = await run_council(
                 "Single model test",
                 config,
-                context_factory=_make_ctx_factory(mock_provider),
+                context_factory=make_ctx_factory(mock_provider),
             )
 
         assert result
@@ -318,7 +297,7 @@ class TestRunCouncilIntegration:
         assert "Solo-Model" in result or "Synthesized" in result or "Council" in result
 
     @pytest.mark.asyncio
-    async def test_auto_chairman(self):
+    async def test_auto_chairman(self, make_ctx_factory):
         """No 'chairman' in config → #1 ranked model synthesizes successfully."""
         config = {
             "council_models": [
@@ -349,7 +328,7 @@ class TestRunCouncilIntegration:
             result = await run_council(
                 "Auto chairman test",
                 config,
-                context_factory=_make_ctx_factory(mock_provider),
+                context_factory=make_ctx_factory(mock_provider),
             )
 
         assert "LLM Council Response" in result
@@ -358,7 +337,7 @@ class TestRunCouncilIntegration:
         assert "(auto)" in result
 
     @pytest.mark.asyncio
-    async def test_chairman_fallback(self, sample_config):
+    async def test_chairman_fallback(self, sample_config, make_ctx_factory):
         """Explicit chairman fails → #1 ranked model takes over."""
         # Chairman is Model-A (from sample_config).
         # We disable response order shuffling so ranking labels are deterministic:
@@ -399,7 +378,7 @@ class TestRunCouncilIntegration:
             result = await run_council(
                 "Chairman fallback test",
                 sample_config,
-                context_factory=_make_ctx_factory(mock_provider),
+                context_factory=make_ctx_factory(mock_provider),
             )
 
         # Should contain the fallback synthesis, not the error

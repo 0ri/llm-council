@@ -45,10 +45,11 @@ class RunManifest:
         estimated_tokens: int,
         chairman_auto: bool = False,
         actual_chairman: str | None = None,
+        run_id: str | None = None,
     ) -> RunManifest:
         """Create a new RunManifest from council execution data."""
-        # Generate unique run ID
-        run_id = str(uuid.uuid4())
+        # Use provided run_id or generate a new one
+        run_id = run_id or str(uuid.uuid4())
 
         # Current timestamp in ISO 8601 format
         timestamp = datetime.now(timezone.utc).isoformat()

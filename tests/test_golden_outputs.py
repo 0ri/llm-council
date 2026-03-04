@@ -17,30 +17,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from llm_council.context import CouncilContext
-from llm_council.cost import CouncilCostTracker
 from llm_council.council import run_council
 from llm_council.formatting import format_output, format_stage1_output, format_stage2_output
 from llm_council.models import AggregateRanking, Stage1Result, Stage3Result
-from llm_council.progress import ProgressManager
-
-
-def _make_ctx_factory(mock_provider, cache=None):
-    """Return a context_factory callable that injects *mock_provider*."""
-
-    def factory():
-        ctx = CouncilContext(
-            poe_api_key="test-key",
-            cost_tracker=CouncilCostTracker(),
-            progress=ProgressManager(is_tty=False),
-            cache=cache,
-        )
-        ctx.providers["poe"] = mock_provider
-        ctx.providers["bedrock"] = mock_provider
-        return ctx
-
-    return factory
-
 
 SAMPLE_CONFIG = {
     "council_models": [
@@ -85,7 +64,7 @@ class TestGoldenStage1Only:
         assert "Chairman" not in output
 
     @pytest.mark.asyncio
-    async def test_stage1_only_pipeline(self):
+    async def test_stage1_only_pipeline(self, make_ctx_factory):
         """Full pipeline with max_stage=1 produces Stage 1 output."""
         call_count = {"n": 0}
 
@@ -101,7 +80,7 @@ class TestGoldenStage1Only:
             result = await run_council(
                 "What is 2+2?",
                 SAMPLE_CONFIG,
-                context_factory=_make_ctx_factory(mock_provider),
+                context_factory=make_ctx_factory(mock_provider),
                 max_stage=1,
             )
 
@@ -149,7 +128,7 @@ class TestGoldenFullNonStream:
         assert "3/3 valid ballots" in output
 
     @pytest.mark.asyncio
-    async def test_full_pipeline_non_stream(self):
+    async def test_full_pipeline_non_stream(self, make_ctx_factory):
         """Full 3-stage pipeline produces rankings + synthesis."""
         call_count = {"n": 0}
 
@@ -170,7 +149,7 @@ class TestGoldenFullNonStream:
             result = await run_council(
                 "What is 2+2?",
                 SAMPLE_CONFIG,
-                context_factory=_make_ctx_factory(mock_provider),
+                context_factory=make_ctx_factory(mock_provider),
             )
 
         assert "## LLM Council Response" in result
@@ -187,7 +166,7 @@ class TestGoldenStreamFallback:
     """Verify stream fallback produces valid output."""
 
     @pytest.mark.asyncio
-    async def test_stream_fallback_produces_output(self):
+    async def test_stream_fallback_produces_output(self, make_ctx_factory, make_ctx):
         """When streaming is requested but provider doesn't support it,
         fallback_astream wraps query_model and produces valid output."""
         from llm_council.stages import stream_model
@@ -198,11 +177,7 @@ class TestGoldenStreamFallback:
             async def query(self, prompt, model_config, timeout, **kwargs):
                 return "Fallback synthesis result.", {"input_tokens": 10, "output_tokens": 20}
 
-        ctx = CouncilContext(
-            poe_api_key="test-key",
-            cost_tracker=CouncilCostTracker(),
-            progress=ProgressManager(is_tty=False),
-        )
+        ctx = make_ctx()
         ctx.providers["poe"] = _QueryOnlyProvider()
 
         model_config = {"provider": "poe", "name": "Model-A", "bot_name": "TestBot-A"}
@@ -223,7 +198,7 @@ class TestGoldenStrictBallotFailure:
     """Verify strict_ballots mode produces appropriate warnings."""
 
     @pytest.mark.asyncio
-    async def test_strict_ballots_all_invalid(self):
+    async def test_strict_ballots_all_invalid(self, make_ctx_factory):
         """strict_ballots=True with unparseable rankings produces warning."""
         config = {
             **SAMPLE_CONFIG,
@@ -249,7 +224,7 @@ class TestGoldenStrictBallotFailure:
             result = await run_council(
                 "Strict test",
                 config,
-                context_factory=_make_ctx_factory(mock_provider),
+                context_factory=make_ctx_factory(mock_provider),
             )
 
         # Should still produce output (either with warning or error)

@@ -32,6 +32,62 @@ def mock_ctx():
 
 
 @pytest.fixture
+def make_ctx():
+    """Factory fixture for creating a CouncilContext with optional overrides.
+
+    Returns a callable: ``make_ctx(**overrides) -> CouncilContext``.
+    Attribute overrides are applied via ``setattr`` after construction.
+    """
+    from llm_council.context import CouncilContext
+    from llm_council.cost import CouncilCostTracker
+    from llm_council.progress import ProgressManager
+
+    def _factory(**overrides) -> CouncilContext:
+        ctx = CouncilContext(
+            poe_api_key="test-key",
+            cost_tracker=CouncilCostTracker(),
+            progress=ProgressManager(is_tty=False),
+        )
+        for k, v in overrides.items():
+            setattr(ctx, k, v)
+        return ctx
+
+    return _factory
+
+
+@pytest.fixture
+def make_ctx_factory():
+    """Factory fixture for creating context_factory callables.
+
+    Returns a callable:
+        ``make_ctx_factory(mock_provider, cache=None) -> Callable[[], CouncilContext]``
+
+    The returned factory pre-injects *mock_provider* for "poe", "bedrock",
+    and "openrouter" provider slots.
+    """
+    from llm_council.context import CouncilContext
+    from llm_council.cost import CouncilCostTracker
+    from llm_council.progress import ProgressManager
+
+    def _factory(mock_provider, cache=None):
+        def ctx_factory():
+            ctx = CouncilContext(
+                poe_api_key="test-key",
+                cost_tracker=CouncilCostTracker(),
+                progress=ProgressManager(is_tty=False),
+                cache=cache,
+            )
+            ctx.providers["poe"] = mock_provider
+            ctx.providers["bedrock"] = mock_provider
+            ctx.providers["openrouter"] = mock_provider
+            return ctx
+
+        return ctx_factory
+
+    return _factory
+
+
+@pytest.fixture
 def sample_config():
     """Valid council configuration for testing."""
     return {

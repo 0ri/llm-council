@@ -6,6 +6,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from .defaults import DEFAULT_CACHE_TTL
+
 
 @dataclass
 class RunOptions:
@@ -25,6 +27,6 @@ class RunOptions:
     max_stage: int = 3
     seed: int | None = None
     use_cache: bool = True
-    cache_ttl: int = 86400
+    cache_ttl: int = DEFAULT_CACHE_TTL
     stream: bool = False
     on_chunk: Callable[[str], Awaitable[None]] | None = field(default=None, repr=False)

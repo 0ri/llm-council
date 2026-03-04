@@ -12,27 +12,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from llm_council.budget import BudgetGuard
-from llm_council.context import CouncilContext
-from llm_council.cost import CouncilCostTracker
 from llm_council.models import Stage2Result
 from llm_council.parsing import _parse_json_ranking, parse_ranking_from_text
-from llm_council.progress import ProgressManager
 from llm_council.providers import StreamResult
 from llm_council.providers.openrouter import OpenRouterAPIError
 from llm_council.stages import _get_ranking, query_model, stream_model
-
-
-def _make_ctx(**overrides) -> CouncilContext:
-    """Create a minimal CouncilContext for unit tests."""
-    ctx = CouncilContext(
-        poe_api_key="test-key",
-        cost_tracker=CouncilCostTracker(),
-        progress=ProgressManager(is_tty=False),
-    )
-    for k, v in overrides.items():
-        setattr(ctx, k, v)
-    return ctx
-
 
 MODEL_CONFIG = {"provider": "bedrock", "name": "test-model", "model_id": "test"}
 MESSAGES = [{"role": "user", "content": "hello"}]
@@ -47,10 +31,10 @@ class TestCancelledErrorBudgetLeak:
     """P0-1: CancelledError should release budget reservation before re-raising."""
 
     @pytest.mark.asyncio
-    async def test_query_model_releases_budget_on_cancellation(self):
+    async def test_query_model_releases_budget_on_cancellation(self, make_ctx):
         """query_model must release budget reservation when cancelled."""
         budget = BudgetGuard(max_tokens=1_000_000)
-        ctx = _make_ctx(budget_guard=budget)
+        ctx = make_ctx(budget_guard=budget)
 
         mock_provider = AsyncMock()
 
@@ -72,10 +56,10 @@ class TestCancelledErrorBudgetLeak:
         assert total == 0
 
     @pytest.mark.asyncio
-    async def test_stream_model_releases_budget_on_cancellation(self):
+    async def test_stream_model_releases_budget_on_cancellation(self, make_ctx):
         """stream_model must release budget reservation when cancelled."""
         budget = BudgetGuard(max_tokens=1_000_000)
-        ctx = _make_ctx(budget_guard=budget)
+        ctx = make_ctx(budget_guard=budget)
 
         async def slow_generate():
             await asyncio.sleep(100)
@@ -143,10 +127,10 @@ class TestStreamModelUnboundLocal:
     """P1-1: stream_model should not raise UnboundLocalError when get_provider fails."""
 
     @pytest.mark.asyncio
-    async def test_get_provider_raises_no_unbound_local(self):
+    async def test_get_provider_raises_no_unbound_local(self, make_ctx):
         """When get_provider raises, stream_model should fall back gracefully
         without UnboundLocalError on `accumulated`."""
-        ctx = _make_ctx()
+        ctx = make_ctx()
 
         with patch.object(ctx, "get_provider", side_effect=ValueError("no such provider")):
             # Should not raise UnboundLocalError
@@ -165,9 +149,9 @@ class TestBudgetExhaustionPropagation:
     """P1-2: _get_ranking should propagate token_usage including budget_exceeded."""
 
     @pytest.mark.asyncio
-    async def test_get_ranking_propagates_budget_exceeded(self):
+    async def test_get_ranking_propagates_budget_exceeded(self, make_ctx):
         """When query_model returns budget_exceeded, _get_ranking should propagate it."""
-        ctx = _make_ctx()
+        ctx = make_ctx()
 
         with patch("llm_council.stages.stage2.query_model") as mock_qm:
             mock_qm.return_value = (None, {"budget_exceeded": True})

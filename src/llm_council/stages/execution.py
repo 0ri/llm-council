@@ -161,6 +161,8 @@ async def query_model(
     Returns:
         Tuple of (response dict with 'content' key or None, token usage dict or None)
     """
+    # coerce_model_config is handled by _managed_execution; only need
+    # the name here for the early circuit-breaker check.
     model_config = coerce_model_config(model_config)
     model_name = model_config.name
 
@@ -210,6 +212,8 @@ async def stream_model(
     Returns:
         Tuple of (accumulated text, token usage dict or None).
     """
+    # coerce_model_config is handled by _managed_execution; only need
+    # the name here for the early circuit-breaker check.
     model_config = coerce_model_config(model_config)
     model_name = model_config.name
 

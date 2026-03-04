@@ -5,22 +5,11 @@ from unittest.mock import patch
 
 import pytest
 
-from llm_council.context import CouncilContext
 from llm_council.cost import CouncilCostTracker
 from llm_council.manifest import RunManifest
-from llm_council.progress import ProgressManager
 from llm_council.providers.bedrock import is_retryable_bedrock_error
 from llm_council.providers.poe import is_retryable_poe_error
 from llm_council.stages import query_models_parallel
-
-
-def _make_ctx() -> CouncilContext:
-    """Create a CouncilContext suitable for unit tests."""
-    return CouncilContext(
-        poe_api_key="test-key",
-        cost_tracker=CouncilCostTracker(),
-        progress=ProgressManager(is_tty=False),
-    )
 
 
 class TestManifest:
@@ -228,7 +217,7 @@ class TestAggressiveTimeout:
     """Tests for aggressive timeout with graceful degradation."""
 
     @pytest.mark.asyncio
-    async def test_soft_timeout_with_min_responses(self):
+    async def test_soft_timeout_with_min_responses(self, make_ctx):
         """Test that soft timeout triggers when min responses are received."""
         # Create mock model configs
         model_configs = [
@@ -249,7 +238,7 @@ class TestAggressiveTimeout:
                 return {"content": "slow response"}, None
 
         with patch("llm_council.stages.execution.query_model", side_effect=mock_query_model):
-            ctx = _make_ctx()
+            ctx = make_ctx()
             results, usages = await query_models_parallel(
                 model_configs,
                 [{"role": "user", "content": "test"}],
@@ -267,7 +256,7 @@ class TestAggressiveTimeout:
             assert results["Slow-Model-2"] is None
 
     @pytest.mark.asyncio
-    async def test_all_models_complete_before_soft_timeout(self):
+    async def test_all_models_complete_before_soft_timeout(self, make_ctx):
         """Test that all models complete if they finish before soft timeout."""
         model_configs = [
             {"name": "Model-A", "provider": "poe", "bot_name": "a"},
@@ -279,7 +268,7 @@ class TestAggressiveTimeout:
             return {"content": f"response from {config.name}"}, None
 
         with patch("llm_council.stages.execution.query_model", side_effect=mock_query_model):
-            ctx = _make_ctx()
+            ctx = make_ctx()
             results, usages = await query_models_parallel(
                 model_configs,
                 [{"role": "user", "content": "test"}],
@@ -292,7 +281,7 @@ class TestAggressiveTimeout:
             assert results["Model-B"] is not None
 
     @pytest.mark.asyncio
-    async def test_min_responses_default_calculation(self):
+    async def test_min_responses_default_calculation(self, make_ctx):
         """Test default min_responses calculation."""
         # With 4 models, default should be 3 (len-1)
         model_configs = [{"name": f"Model-{i}", "provider": "poe", "bot_name": f"bot-{i}"} for i in range(4)]
@@ -308,7 +297,7 @@ class TestAggressiveTimeout:
                 return {"content": "slow"}, None
 
         with patch("llm_council.stages.execution.query_model", side_effect=mock_query_model):
-            ctx = _make_ctx()
+            ctx = make_ctx()
             results, usages = await query_models_parallel(
                 model_configs,
                 [{"role": "user", "content": "test"}],

@@ -23,6 +23,7 @@ from .aggregation import calculate_aggregate_rankings
 from .budget import BudgetExceededError, create_budget_guard
 from .context import CouncilContext
 from .cost import CouncilCostTracker
+from .defaults import DEFAULT_CACHE_TTL
 from .formatting import format_output, format_stage1_output, format_stage2_output
 from .manifest import RunManifest
 from .models import CouncilConfig, generate_response_labels
@@ -133,7 +134,7 @@ async def run_council(
     max_stage: int = 3,
     seed: int | None = None,
     use_cache: bool = True,
-    cache_ttl: int = 86400,
+    cache_ttl: int = DEFAULT_CACHE_TTL,
     stream: bool = False,
     on_chunk: Callable[[str], Awaitable[None]] | None = None,
     *,
@@ -206,18 +207,17 @@ async def run_council(
     # Track start time for manifest
     start_time = time.time()
 
-    # Accept both CouncilConfig and plain dict
+    # Accept both CouncilConfig and plain dict — parse once, early
     if isinstance(config, CouncilConfig):
-        # Already validated — skip re-validation
-        pass
+        validated = config
     else:
-        # Validate configuration first
         errors = validate_config(config)
         if errors:
             error_msg = "Configuration errors:\n"
             for e in errors:
                 error_msg += f"  - {e}\n"
             return error_msg
+        validated = CouncilConfig(**config)
 
     # Sanitize user input
     question = sanitize_user_input(question)
@@ -231,13 +231,9 @@ async def run_council(
         from .persistence import RunLogger
 
         run_logger = RunLogger(log_dir, run_id)
-        run_logger.log_config(question, config)
+        run_logger.log_config(question, validated.model_dump())
 
     # Extract typed ModelConfig objects from validated config
-    if isinstance(config, CouncilConfig):
-        validated = config
-    else:
-        validated = CouncilConfig(**config)
     council_models = list(validated.council_models)
     chairman_config_typed = validated.chairman
     auto_chairman = chairman_config_typed is None
@@ -248,22 +244,15 @@ async def run_council(
     else:
         from .cache import ResponseCache
 
-        # Load custom prompt templates from config if present
-        from .models import PromptConfig
-
-        prompt_config = None
-        if "prompts" in config:
-            prompt_config = PromptConfig(**config["prompts"])
-
         ctx = CouncilContext(
             poe_api_key=os.environ.get("POE_API_KEY"),
             openrouter_api_key=os.environ.get("OPENROUTER_API_KEY"),
             cost_tracker=CouncilCostTracker(),
-            budget_guard=create_budget_guard(config),
+            budget_guard=create_budget_guard(validated.budget),
             progress=ProgressManager(),
-            stage2_max_retries=config.get("stage2_retries", 1),
+            stage2_max_retries=validated.stage2_retries,
             cache=ResponseCache(ttl=cache_ttl) if use_cache else None,
-            prompt_config=prompt_config,
+            prompt_config=validated.prompts,
         )
 
     if ctx.budget_guard:
@@ -278,8 +267,8 @@ async def run_council(
                 question,
                 council_models,
                 ctx,
-                soft_timeout=config.get("soft_timeout"),
-                min_responses=config.get("min_responses"),
+                soft_timeout=validated.soft_timeout,
+                min_responses=validated.min_responses,
             )
 
             if not stage1_results:
@@ -330,7 +319,7 @@ async def run_council(
             logger.info(f"Valid ballots: {valid_ballots}/{total_ballots}")
 
             # Item 14: Check min_valid_ballots threshold
-            min_vb = config.get("min_valid_ballots")
+            min_vb = validated.min_valid_ballots
             ballot_threshold = min_vb if min_vb is not None else math.ceil(total_ballots / 2)
             low_ballot_warning = ""
             if valid_ballots < ballot_threshold:
@@ -342,7 +331,7 @@ async def run_council(
                     f"Low ballot confidence: {valid_ballots}/{total_ballots} valid ballots "
                     f"(minimum: {ballot_threshold})"
                 )
-                if config.get("strict_ballots", False):
+                if validated.strict_ballots:
                     total_elapsed = time.time() - start_time
                     await ctx.progress.complete_council(total_elapsed)
                     return (
@@ -433,7 +422,7 @@ async def run_council(
             # Create run manifest (use the same run_id generated earlier)
             manifest = RunManifest.create(
                 question=question,
-                config=config,
+                config=validated.model_dump(),
                 stage1_count=len(stage1_results),
                 valid_ballots=valid_ballots,
                 total_ballots=total_ballots,
@@ -441,8 +430,8 @@ async def run_council(
                 estimated_tokens=ctx.cost_tracker.total_tokens,
                 chairman_auto=auto_chairman,
                 actual_chairman=chairman_config_typed.name if chairman_config_typed else "unknown",
+                run_id=run_id,
             )
-            manifest.run_id = run_id
 
             # Print manifest to stderr if requested
             if print_manifest:

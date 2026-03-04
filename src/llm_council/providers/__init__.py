@@ -39,7 +39,10 @@ DEFAULT_MAX_RETRIES = 2
 
 # Timeout for individual model queries (seconds)
 MODEL_TIMEOUT = DEFAULT_TIMEOUT
-# Soft timeout for parallel queries before proceeding with partial results
+# Soft timeout for parallel queries before proceeding with partial results.
+# This is the absolute provider-level fallback (480s). The config-level default
+# is 300s (in defaults.py / CouncilConfig.soft_timeout) and takes precedence
+# when a user config is loaded.
 SOFT_TIMEOUT = DEFAULT_SOFT_TIMEOUT
 # Number of retry attempts for transient failures
 MAX_RETRIES = DEFAULT_MAX_RETRIES

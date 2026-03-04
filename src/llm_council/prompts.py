@@ -7,6 +7,31 @@ with placeholders for nonce-fenced responses and injection-hardening.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .models import PromptConfig
+
+
+def resolve_template(prompt_config: PromptConfig | None, field_name: str, default_template: str) -> str:
+    """Resolve a prompt template from config, falling back to the built-in default.
+
+    Args:
+        prompt_config: Optional ``PromptConfig`` with custom templates.
+        field_name: The field name to resolve (e.g. ``"ranking_system"``).
+        default_template: Built-in template to use when *prompt_config* is
+            ``None`` or the field is not set.
+
+    Returns:
+        The resolved template string.
+    """
+    if prompt_config is not None:
+        custom = prompt_config.resolve(field_name)
+        if custom is not None:
+            return custom
+    return default_template
+
+
 # Stage 2 Ranking Templates
 RANKING_SYSTEM_MESSAGE_TEMPLATE = """You are a response evaluator. You will be shown multiple AI responses \
 enclosed in <response-*> XML tags.
