@@ -110,7 +110,6 @@ class PoeProvider:
 
     async def query(
         self,
-        prompt: str,
         model_config: ModelConfig,
         timeout: int,
         request: ProviderRequest | None = None,
@@ -124,14 +123,14 @@ class PoeProvider:
 
         bot_name = model_config.bot_name
 
-        # Use typed request if provided, fall back to legacy model_config keys
+        # Use typed request if provided
         if request is not None:
             suppress_flags = request.suppress_provider_flags
             messages = request.messages
             system_message = request.system_message
         else:
             suppress_flags = False
-            messages = [{"role": "user", "content": prompt}]
+            messages = []
             system_message = None
 
         web_search = False if suppress_flags else getattr(model_config, "web_search", False)
@@ -165,7 +164,6 @@ class PoeProvider:
 
     def astream(
         self,
-        prompt: str,
         model_config: ModelConfig,
         timeout: int,
         request: ProviderRequest | None = None,
@@ -186,7 +184,7 @@ class PoeProvider:
             system_message = request.system_message
         else:
             suppress_flags = False
-            messages = [{"role": "user", "content": prompt}]
+            messages = []
             system_message = None
 
         web_search = False if suppress_flags else getattr(model_config, "web_search", False)

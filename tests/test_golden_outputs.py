@@ -20,6 +20,7 @@ import pytest
 from llm_council.council import run_council
 from llm_council.formatting import format_output, format_stage1_output, format_stage2_output
 from llm_council.models import AggregateRanking, Stage1Result, Stage3Result
+from llm_council.run_options import RunOptions
 
 SAMPLE_CONFIG = {
     "council_models": [
@@ -68,7 +69,7 @@ class TestGoldenStage1Only:
         """Full pipeline with max_stage=1 produces Stage 1 output."""
         call_count = {"n": 0}
 
-        async def mock_query(prompt, model_config, timeout, **kwargs):
+        async def mock_query(model_config, timeout, **kwargs):
             call_count["n"] += 1
             name = getattr(model_config, "name", "unknown")
             return f"Response from {name}", None
@@ -80,8 +81,10 @@ class TestGoldenStage1Only:
             result = await run_council(
                 "What is 2+2?",
                 SAMPLE_CONFIG,
-                context_factory=make_ctx_factory(mock_provider),
-                max_stage=1,
+                options=RunOptions(
+                    context_factory=make_ctx_factory(mock_provider),
+                    max_stage=1,
+                ),
             )
 
         assert "Stage 1 only" in result
@@ -132,7 +135,7 @@ class TestGoldenFullNonStream:
         """Full 3-stage pipeline produces rankings + synthesis."""
         call_count = {"n": 0}
 
-        async def mock_query(prompt, model_config, timeout, **kwargs):
+        async def mock_query(model_config, timeout, **kwargs):
             call_count["n"] += 1
             name = getattr(model_config, "name", "unknown")
             if call_count["n"] <= 3:
@@ -149,7 +152,9 @@ class TestGoldenFullNonStream:
             result = await run_council(
                 "What is 2+2?",
                 SAMPLE_CONFIG,
-                context_factory=make_ctx_factory(mock_provider),
+                options=RunOptions(
+                    context_factory=make_ctx_factory(mock_provider),
+                ),
             )
 
         assert "## LLM Council Response" in result
@@ -174,7 +179,7 @@ class TestGoldenStreamFallback:
         # Test at the stream_model level: provider with no astream
         # falls back via fallback_astream and produces accumulated text.
         class _QueryOnlyProvider:
-            async def query(self, prompt, model_config, timeout, **kwargs):
+            async def query(self, model_config, timeout, **kwargs):
                 return "Fallback synthesis result.", {"input_tokens": 10, "output_tokens": 20}
 
         ctx = make_ctx()
@@ -206,7 +211,7 @@ class TestGoldenStrictBallotFailure:
         }
         call_count = {"n": 0}
 
-        async def mock_query(prompt, model_config, timeout, **kwargs):
+        async def mock_query(model_config, timeout, **kwargs):
             call_count["n"] += 1
             name = getattr(model_config, "name", "unknown")
             if call_count["n"] <= 3:
@@ -224,7 +229,9 @@ class TestGoldenStrictBallotFailure:
             result = await run_council(
                 "Strict test",
                 config,
-                context_factory=make_ctx_factory(mock_provider),
+                options=RunOptions(
+                    context_factory=make_ctx_factory(mock_provider),
+                ),
             )
 
         # Should still produce output (either with warning or error)

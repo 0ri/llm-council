@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Any
 import httpx
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
+from . import DEFAULT_MAX_TOKENS
+
 if TYPE_CHECKING:
     from ..models import ModelConfig
     from . import ProviderRequest, StreamResult
@@ -105,7 +107,7 @@ class OpenRouterProvider:
         body: dict[str, Any] = {
             "model": model_config.model_id,
             "messages": api_messages,
-            "max_tokens": getattr(model_config, "max_tokens", None) or 16384,
+            "max_tokens": getattr(model_config, "max_tokens", None) or DEFAULT_MAX_TOKENS,
         }
         temperature = getattr(model_config, "temperature", None)
         if temperature is not None:
@@ -126,7 +128,6 @@ class OpenRouterProvider:
 
     async def query(
         self,
-        prompt: str,
         model_config: ModelConfig,
         timeout: int,
         request: ProviderRequest | None = None,
@@ -139,12 +140,12 @@ class OpenRouterProvider:
         """
         from . import MAX_RETRIES
 
-        # Use typed request if provided, fall back to minimal defaults
+        # Use typed request if provided
         if request is not None:
             messages = request.messages
             system_message = request.system_message
         else:
-            messages = [{"role": "user", "content": prompt}]
+            messages = []
             system_message = None
 
         @retry(
@@ -194,7 +195,6 @@ class OpenRouterProvider:
 
     def astream(
         self,
-        prompt: str,
         model_config: ModelConfig,
         timeout: int,
         request: ProviderRequest | None = None,
@@ -206,12 +206,12 @@ class OpenRouterProvider:
         """
         from . import MAX_RETRIES, StreamResult, UsageTrackingStream
 
-        # Use typed request if provided, fall back to minimal defaults
+        # Use typed request if provided
         if request is not None:
             messages = request.messages
             system_message = request.system_message
         else:
-            messages = [{"role": "user", "content": prompt}]
+            messages = []
             system_message = None
 
         usage_info: dict[str, int] = {}

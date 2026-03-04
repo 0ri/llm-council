@@ -11,7 +11,6 @@ import asyncio
 import importlib
 import inspect
 import logging
-import warnings
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -151,20 +150,6 @@ class CouncilContext:
                 await close_fn()
         if self.cache is not None:
             self.cache.close()
-
-    async def close(self) -> None:
-        """Close all providers and the cache.
-
-        .. deprecated::
-            Use :meth:`shutdown` instead, which also closes the
-            progress manager and is idempotent.
-        """
-        warnings.warn(
-            "CouncilContext.close() is deprecated, use shutdown() instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        await self._close_resources()
 
     async def shutdown(self) -> None:
         """Unified shutdown: close providers, cache, and progress manager.

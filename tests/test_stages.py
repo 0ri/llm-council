@@ -95,15 +95,13 @@ class TestStage2CollectRankings:
         with patch("llm_council.stages.stage2.query_model") as mock_query:
             # Setup mock to return valid rankings
             async def mock_query_response(*args, **kwargs):
-                return {
-                    "content": """
+                return """
                     Response A is good.
                     Response B is better.
                     ```json
                     {"ranking": ["Response B", "Response A"]}
                     ```
-                    """
-                }, None  # Return tuple (response, token_usage)
+                    """, None  # Return tuple (response, token_usage)
 
             mock_query.side_effect = mock_query_response
 
@@ -159,13 +157,11 @@ class TestStage2CollectRankings:
                 model_name = model_config.name
                 prompt = messages[0]["content"]
                 prompts_by_model[model_name] = prompt
-                return {
-                    "content": """
+                return """
                     ```json
                     {"ranking": ["Response A", "Response B", "Response C"]}
                     ```
-                    """
-                }, None  # Return tuple (response, token_usage)
+                    """, None  # Return tuple (response, token_usage)
 
             mock_query.side_effect = mock_query_response
 
@@ -206,13 +202,11 @@ class TestStage2CollectRankings:
 
             async def mock_query_response(*args, **kwargs):
                 # Each model only ranks one other (due to self-exclusion)
-                return {
-                    "content": """
+                return """
                     ```json
                     {"ranking": ["Response A"]}
                     ```
-                    """
-                }, None  # Return tuple (response, token_usage)
+                    """, None  # Return tuple (response, token_usage)
 
             mock_query.side_effect = mock_query_response
 
@@ -241,7 +235,7 @@ class TestStage2CollectRankings:
 
         with patch("llm_council.stages.stage2.query_model") as mock_query:
             # This shouldn't be called since M1 has no one else to rank
-            mock_query.side_effect = AsyncMock(return_value=({"content": "Should not be called"}, None))
+            mock_query.side_effect = AsyncMock(return_value=("Should not be called", None))
 
             ctx = make_ctx()
             result = await stage2_collect_rankings(user_query, stage1_results, council_models, ctx)
@@ -280,9 +274,9 @@ class TestStage2QualityGate:
                 call_counts[name] = call_counts.get(name, 0) + 1
 
                 if name == "Model2" and call_counts[name] == 1:
-                    return {"content": "This is garbage that cannot be parsed as a ranking."}, None
+                    return "This is garbage that cannot be parsed as a ranking.", None
 
-                return {"content": '```json\n{"ranking": ["Response A", "Response B"]}\n```'}, None
+                return '```json\n{"ranking": ["Response A", "Response B"]}\n```', None
 
             mock_query.side_effect = mock_query_response
 
@@ -319,7 +313,7 @@ class TestStage2QualityGate:
             async def mock_query_response(model_config, messages, *args, **kwargs):
                 name = model_config.name
                 call_counts[name] = call_counts.get(name, 0) + 1
-                return {"content": '```json\n{"ranking": ["Response A", "Response B"]}\n```'}, None
+                return '```json\n{"ranking": ["Response A", "Response B"]}\n```', None
 
             mock_query.side_effect = mock_query_response
 
@@ -359,9 +353,9 @@ class TestStage2QualityGate:
                 call_counts[name] = call_counts.get(name, 0) + 1
 
                 if name == "Model2":
-                    return {"content": "Completely unparseable garbage text."}, None
+                    return "Completely unparseable garbage text.", None
 
-                return {"content": '```json\n{"ranking": ["Response A", "Response B"]}\n```'}, None
+                return '```json\n{"ranking": ["Response A", "Response B"]}\n```', None
 
             mock_query.side_effect = mock_query_response
 
@@ -401,9 +395,9 @@ class TestStage2QualityGate:
                 call_counts[name] = call_counts.get(name, 0) + 1
 
                 if name == "Model2":
-                    return {"content": "Completely unparseable garbage text."}, None
+                    return "Completely unparseable garbage text.", None
 
-                return {"content": '```json\n{"ranking": ["Response A", "Response B"]}\n```'}, None
+                return '```json\n{"ranking": ["Response A", "Response B"]}\n```', None
 
             mock_query.side_effect = mock_query_response
 
@@ -458,4 +452,4 @@ class TestBudgetEnforcement:
             result, usage = await query_model(model_config, messages, ctx)
 
             assert result is not None
-            assert result["content"] == "Hello back"
+            assert result == "Hello back"

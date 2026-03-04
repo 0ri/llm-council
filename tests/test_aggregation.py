@@ -3,7 +3,6 @@
 from llm_council.aggregation import (
     bootstrap_confidence_intervals,
     calculate_aggregate_rankings,
-    calculate_borda_score,
 )
 from llm_council.models import Stage2Result
 
@@ -162,27 +161,6 @@ class TestBootstrapConfidenceIntervals:
         ci_lower, ci_upper = bootstrap_confidence_intervals([])
         assert ci_lower == 0.0
         assert ci_upper == 0.0
-
-
-class TestBordaScore:
-    def test_first_place(self):
-        positions = [1, 1, 1]
-        score = calculate_borda_score(positions, n_candidates=3)
-        assert score == 2.0
-
-    def test_last_place(self):
-        positions = [3, 3, 3]
-        score = calculate_borda_score(positions, n_candidates=3)
-        assert score == 0.0
-
-    def test_mixed_rankings(self):
-        positions = [1, 2, 3]
-        score = calculate_borda_score(positions, n_candidates=3)
-        assert score == 1.0
-
-    def test_empty_positions(self):
-        score = calculate_borda_score([], n_candidates=3)
-        assert score == 0.0
 
 
 class TestInvalidBallotExclusion:

@@ -205,7 +205,7 @@ def _parse_ordinal_ranking(text: str, num_responses: int | None = None) -> list[
                         best_dist = d
                         best_idx = right
                     break  # found nearest right label
-                right -= 1
+                right += 1
         if best_idx is None:
             continue
         label = tokens[best_idx][2]

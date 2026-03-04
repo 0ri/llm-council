@@ -9,9 +9,10 @@ result types (``Stage1Result``, ``Stage2Result``, ``Stage3Result``,
 
 from __future__ import annotations
 
+import os
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from .defaults import DEFAULT_CACHE_TTL, DEFAULT_SOFT_TIMEOUT, DEFAULT_STAGE2_RETRIES
 
@@ -189,6 +190,90 @@ class CouncilConfig(BaseModel):
     stage2_retries: int = Field(default=DEFAULT_STAGE2_RETRIES, ge=0, le=5)
     min_valid_ballots: int | None = None
     strict_ballots: bool = False
+
+    @classmethod
+    def validate_from_dict(cls, config: dict) -> list[str]:
+        """Validate a raw config dict and return human-readable error strings.
+
+        Delegates structural validation to Pydantic, then performs
+        environment-variable checks that Pydantic cannot handle.
+
+        Returns:
+            A list of error strings. Empty means the configuration is valid.
+        """
+        errors: list[str] = []
+
+        # --- Pydantic structural validation ---
+        try:
+            cls(**config)
+        except ValidationError as e:
+            for error in e.errors():
+                loc = ".".join(str(x) for x in error["loc"])
+                msg = error["msg"]
+
+                if error["type"] == "missing":
+                    if loc == "council_models":
+                        errors.append("Config missing 'council_models' list")
+                    else:
+                        errors.append(f"Missing required field: {loc}")
+                elif error["type"] in ["list_min_length", "too_short"] and "council_models" in loc:
+                    errors.append("'council_models' must be a non-empty list")
+                elif error["type"] == "literal_error" and "provider" in loc:
+                    if "council_models" in loc:
+                        idx = loc.split(".")[1] if "." in loc else "0"
+                        idx_int = int(idx) if idx.isdigit() else 0
+                        model_name = config.get("council_models", [{}])[idx_int].get("name", f"model[{idx}]")
+                    else:
+                        model_name = config.get("chairman", {}).get("name", "chairman")
+                    errors.append(f"{model_name}: unknown provider (must be one of: bedrock, poe, openrouter)")
+                elif "budget_tokens" in loc and error["type"] in ("greater_than_equal", "less_than_equal"):
+                    if "council_models" in loc:
+                        idx = int(loc.split(".")[1]) if "." in loc and loc.split(".")[1].isdigit() else 0
+                        model_name = config.get("council_models", [{}])[idx].get("name", f"model[{idx}]")
+                    else:
+                        model_name = config.get("chairman", {}).get("name", "chairman")
+                    errors.append(f"{model_name}: 'budget_tokens' must be integer between 1024 and 128000")
+                elif error["type"] == "union_tag_invalid":
+                    if "council_models" in loc:
+                        idx = int(loc.split(".")[1]) if "." in loc and loc.split(".")[1].isdigit() else 0
+                        model_name = config.get("council_models", [{}])[idx].get("name", f"model[{idx}]")
+                    else:
+                        model_name = config.get("chairman", {}).get("name", "chairman")
+                    input_str = str(error.get("input", {}))
+                    if "model_id" in input_str:
+                        errors.append(f"{model_name}: Bedrock provider requires 'model_id'")
+                    elif "bot_name" in input_str:
+                        errors.append(f"{model_name}: Poe provider requires 'bot_name'")
+                    else:
+                        errors.append(f"{loc}: {msg}")
+                else:
+                    errors.append(f"{loc}: {msg}")
+
+        # --- Check for missing name fields (union dispatch can mask this) ---
+        all_models = list(config.get("council_models", []))
+        if config.get("chairman"):
+            all_models.append(config["chairman"])
+        for i, model in enumerate(all_models):
+            if "name" not in model:
+                errors.append(f"Model at index {i} missing 'name'")
+
+        # --- Environment variable checks (Pydantic can't do these) ---
+        poe_models = [m for m in config.get("council_models", []) if m.get("provider") == "poe"]
+        chairman_cfg = config.get("chairman") or {}
+        if chairman_cfg.get("provider") == "poe":
+            poe_models.append(config["chairman"])
+        if poe_models and not os.environ.get("POE_API_KEY"):
+            errors.append("POE_API_KEY environment variable required for Poe provider models")
+
+        or_models = [m for m in config.get("council_models", []) if m.get("provider") == "openrouter"]
+        if chairman_cfg.get("provider") == "openrouter":
+            or_models.append(config["chairman"])
+        if or_models and not os.environ.get("OPENROUTER_API_KEY"):
+            errors.append("OPENROUTER_API_KEY environment variable required for OpenRouter provider models")
+
+        # Deduplicate preserving order
+        seen: set[str] = set()
+        return [e for e in errors if not (e in seen or seen.add(e))]
 
     @model_validator(mode="after")
     def _validate_council_models(self) -> CouncilConfig:

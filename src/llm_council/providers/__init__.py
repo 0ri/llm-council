@@ -66,7 +66,6 @@ class Provider(typing.Protocol):
 
     async def query(
         self,
-        prompt: str,
         model_config: ModelConfig,
         timeout: int,
         request: ProviderRequest | None = None,
@@ -74,26 +73,15 @@ class Provider(typing.Protocol):
         """Send a prompt to the language model and return its response.
 
         Args:
-            prompt: The full prompt text to send to the model, including
-                any system instructions and user content.
             model_config: Typed ``ModelConfig`` (discriminated union) with
-                provider-specific attributes. Bedrock configs have
-                ``model_id`` and ``budget_tokens``; Poe configs have
-                ``bot_name``, ``web_search``, and ``reasoning_effort``;
-                OpenRouter configs have ``model_id``, ``temperature``,
-                and ``max_tokens``.
+                provider-specific attributes.
             timeout: Maximum number of seconds to wait for a response
                 before raising a timeout error.
             request: Optional typed request containing messages,
-                system_message, and flags. When provided, providers
-                should use these instead of extracting from model_config.
+                system_message, and flags.
 
         Returns:
-            A tuple of (response_text, usage_metadata). ``response_text``
-            is the model's generated text. ``usage_metadata`` is an
-            optional dictionary containing token counts and cost
-            information (e.g. ``input_tokens``, ``output_tokens``), or
-            ``None`` if the provider does not report usage data.
+            A tuple of (response_text, usage_metadata).
 
         Raises:
             TimeoutError: If the provider does not respond within the
@@ -168,7 +156,6 @@ class StreamingProvider(Provider, typing.Protocol):
 
     def astream(
         self,
-        prompt: str,
         model_config: ModelConfig,
         timeout: int,
         request: ProviderRequest | None = None,
@@ -176,36 +163,22 @@ class StreamingProvider(Provider, typing.Protocol):
         """Stream a prompt response as an async iterator of text chunks.
 
         Args:
-            prompt: The full prompt text to send to the model, including
-                any system instructions and user content.
             model_config: Typed ``ModelConfig`` with provider-specific
-                attributes. See ``Provider.query`` for details.
+                attributes.
             timeout: Maximum number of seconds to wait for the stream
-                to begin producing chunks before raising a timeout
-                error.
+                to begin producing chunks.
             request: Optional typed request containing messages,
-                system_message, and flags. When provided, providers
-                should use these instead of extracting from model_config.
+                system_message, and flags.
 
         Returns:
             A ``StreamResult`` instance that can be async-iterated to
-            receive text chunks. The ``StreamResult.accumulated``
-            attribute collects the full response, and
-            ``StreamResult.usage`` is populated with token/cost
-            metadata once the stream completes.
-
-        Raises:
-            TimeoutError: If the provider does not begin streaming
-                within the specified timeout.
-            RuntimeError: If the provider encounters an unrecoverable
-                error (e.g. invalid credentials, model not found).
+            receive text chunks.
         """
         ...
 
 
 def fallback_astream(
     provider: Provider,
-    prompt: str,
     model_config: ModelConfig,
     timeout: int,
     request: ProviderRequest | None = None,
@@ -213,7 +186,7 @@ def fallback_astream(
     """Create a StreamResult that falls back to query() for non-streaming providers."""
 
     async def _single_chunk() -> typing.AsyncIterator[str]:
-        text, usage = await provider.query(prompt, model_config, timeout, request=request)
+        text, usage = await provider.query(model_config, timeout, request=request)
         result.usage = usage
         yield text
 

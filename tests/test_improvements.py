@@ -231,11 +231,11 @@ class TestAggressiveTimeout:
             name = config.name
             if name == "Fast-Model":
                 await asyncio.sleep(0.1)
-                return {"content": "fast response"}, None
+                return "fast response", None
             else:
                 # These will be cancelled by soft timeout
                 await asyncio.sleep(10)
-                return {"content": "slow response"}, None
+                return "slow response", None
 
         with patch("llm_council.stages.execution.query_model", side_effect=mock_query_model):
             ctx = make_ctx()
@@ -249,7 +249,7 @@ class TestAggressiveTimeout:
 
             # Fast model should have completed
             assert results["Fast-Model"] is not None
-            assert results["Fast-Model"]["content"] == "fast response"
+            assert results["Fast-Model"] == "fast response"
 
             # Slow models should be None (cancelled)
             assert results["Slow-Model-1"] is None
@@ -265,7 +265,7 @@ class TestAggressiveTimeout:
 
         async def mock_query_model(config, messages, ctx, system_message):
             await asyncio.sleep(0.1)
-            return {"content": f"response from {config.name}"}, None
+            return f"response from {config.name}", None
 
         with patch("llm_council.stages.execution.query_model", side_effect=mock_query_model):
             ctx = make_ctx()
@@ -291,10 +291,10 @@ class TestAggressiveTimeout:
             name = config.name
             if name != "Model-3":
                 await asyncio.sleep(0.1)
-                return {"content": f"response from {name}"}, None
+                return f"response from {name}", None
             else:
                 await asyncio.sleep(10)
-                return {"content": "slow"}, None
+                return "slow", None
 
         with patch("llm_council.stages.execution.query_model", side_effect=mock_query_model):
             ctx = make_ctx()

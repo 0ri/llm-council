@@ -17,6 +17,7 @@ import pytest
 
 from llm_council.council import run_council
 from llm_council.providers import StreamResult
+from llm_council.run_options import RunOptions
 
 # ---------------------------------------------------------------------------
 # Mock providers
@@ -48,7 +49,7 @@ class _MockStreamingProvider:
             "The council has deliberated. The meaning of life involves philosophy, purpose, and happiness."
         )
 
-    async def query(self, prompt: str, model_config: dict, timeout: int, **kwargs) -> tuple[str, dict | None]:
+    async def query(self, model_config: dict, timeout: int, **kwargs) -> tuple[str, dict | None]:
         self._call_count += 1
         name = getattr(model_config, "name", "unknown")
         if self._call_count <= 3:
@@ -59,7 +60,7 @@ class _MockStreamingProvider:
         else:
             return self._synthesis, None
 
-    def astream(self, prompt: str, model_config: dict, timeout: int, **kwargs) -> StreamResult:
+    def astream(self, model_config: dict, timeout: int, **kwargs) -> StreamResult:
         """Stream the chairman synthesis as multiple chunks."""
         synthesis = self._synthesis
         self._call_count += 1
@@ -94,7 +95,7 @@ class _MockFailingStreamProvider:
         }
         self._synthesis = "Fallback synthesis after streaming error."
 
-    async def query(self, prompt: str, model_config: dict, timeout: int, **kwargs) -> tuple[str, dict | None]:
+    async def query(self, model_config: dict, timeout: int, **kwargs) -> tuple[str, dict | None]:
         self._call_count += 1
         name = getattr(model_config, "name", "unknown")
         if self._call_count <= 3:
@@ -105,7 +106,7 @@ class _MockFailingStreamProvider:
         else:
             return self._synthesis, None
 
-    def astream(self, prompt: str, model_config: dict, timeout: int, **kwargs) -> StreamResult:
+    def astream(self, model_config: dict, timeout: int, **kwargs) -> StreamResult:
         """Stream that fails mid-way through."""
         self._call_count += 1
 
@@ -145,9 +146,11 @@ class TestStreamingIntegration:
             result = await run_council(
                 "What is the meaning of life?",
                 sample_config,
-                context_factory=make_ctx_factory(provider),
-                stream=True,
-                on_chunk=on_chunk,
+                options=RunOptions(
+                    context_factory=make_ctx_factory(provider),
+                    stream=True,
+                    on_chunk=on_chunk,
+                ),
             )
 
         # The result should contain standard council output sections
@@ -173,8 +176,10 @@ class TestStreamingIntegration:
             result_no_stream = await run_council(
                 "What is the meaning of life?",
                 sample_config,
-                context_factory=make_ctx_factory(provider_no_stream),
-                stream=False,
+                options=RunOptions(
+                    context_factory=make_ctx_factory(provider_no_stream),
+                    stream=False,
+                ),
             )
 
         # Run with stream=True
@@ -188,9 +193,11 @@ class TestStreamingIntegration:
             result_stream = await run_council(
                 "What is the meaning of life?",
                 sample_config,
-                context_factory=make_ctx_factory(provider_stream),
-                stream=True,
-                on_chunk=on_chunk,
+                options=RunOptions(
+                    context_factory=make_ctx_factory(provider_stream),
+                    stream=True,
+                    on_chunk=on_chunk,
+                ),
             )
 
         # Strip the run manifest block (contains unique Run ID and Timestamp)
@@ -215,9 +222,11 @@ class TestStreamingIntegration:
             result = await run_council(
                 "Test question for fallback",
                 sample_config,
-                context_factory=make_ctx_factory(provider),
-                stream=True,
-                on_chunk=on_chunk,
+                options=RunOptions(
+                    context_factory=make_ctx_factory(provider),
+                    stream=True,
+                    on_chunk=on_chunk,
+                ),
             )
 
         # The council should still produce valid output via fallback

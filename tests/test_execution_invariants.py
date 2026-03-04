@@ -224,7 +224,7 @@ class TestStreamModelInvariants:
         with patch(
             "llm_council.stages.execution.query_model",
             new_callable=AsyncMock,
-            return_value=({"content": "fallback response"}, {"input_tokens": 10, "output_tokens": 5}),
+            return_value=("fallback response", {"input_tokens": 10, "output_tokens": 5}),
         ):
             with patch(
                 "llm_council.stages.execution.fallback_astream",

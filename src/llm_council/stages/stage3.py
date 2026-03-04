@@ -12,7 +12,7 @@ from ..context import CouncilContext
 from ..models import AggregateRanking, ModelConfig, Stage1Result, Stage3Result, coerce_model_config
 from ..progress import ModelStatus
 from ..prompts import SYNTHESIS_PROMPT_TEMPLATE, SYNTHESIS_SYSTEM_MESSAGE_TEMPLATE, resolve_template
-from ..security import build_manipulation_resistance_msg, format_anonymized_responses, sanitize_model_output
+from ..security import build_manipulation_resistance_msg, format_anonymized_responses
 from .execution import query_model, stream_model
 
 logger = logging.getLogger("llm-council")
@@ -72,6 +72,7 @@ async def stage3_synthesize_final(
     ctx: CouncilContext,
     stream: bool = False,
     on_chunk: Callable[[str], Awaitable[None]] | None = None,
+    response_tuples: list[tuple[str, str]] | None = None,
 ) -> tuple[Stage3Result, dict[str, Any] | None]:
     """Stage 3: Chairman synthesizes final response.
 
@@ -86,6 +87,8 @@ async def stage3_synthesize_final(
         ctx: CouncilContext providing providers, circuit breakers, semaphore, progress
         stream: If True, use streaming for the chairman query.
         on_chunk: Optional async callback invoked for each streamed text chunk.
+        response_tuples: Pre-sanitized (model_name, sanitized_text) tuples from council.py.
+            If None, built from stage1_results (for backward compatibility).
 
     Returns:
         Tuple of (result, token usage dict or None)
@@ -98,8 +101,11 @@ async def stage3_synthesize_final(
         await progress.start_stage(3, f"Chairman ({chairman_name}) synthesizing", [chairman_name])
         await progress.update_model(chairman_name, ModelStatus.QUERYING)
 
-    # Build responses tuples for prompt construction, sanitizing outputs
-    response_tuples = [(result.model, sanitize_model_output(result.response)) for result in stage1_results]
+    # Use pre-sanitized response tuples if provided, else build from stage1_results
+    if response_tuples is None:
+        from ..security import sanitize_model_output
+
+        response_tuples = [(result.model, sanitize_model_output(result.response)) for result in stage1_results]
 
     # Build the synthesis prompt (supports custom templates via config)
     prompt_config = getattr(ctx, "prompt_config", None)
@@ -155,4 +161,4 @@ async def stage3_synthesize_final(
         if response is None:
             return Stage3Result(model=chairman_name, response="Error: Unable to generate final synthesis."), None
 
-        return Stage3Result(model=chairman_name, response=response.get("content", "")), token_usage
+        return Stage3Result(model=chairman_name, response=response), token_usage

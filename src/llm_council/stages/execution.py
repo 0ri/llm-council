@@ -155,14 +155,14 @@ async def query_model(
     system_message: str | None = None,
     *,
     suppress_provider_flags: bool = False,
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+) -> tuple[str | None, dict[str, Any] | None]:
     """Query a model through its provider, with timeout.
 
     Returns:
-        Tuple of (response dict with 'content' key or None, token usage dict or None)
+        Tuple of (response text or None, token usage dict or None)
     """
-    # coerce_model_config is handled by _managed_execution; only need
-    # the name here for the early circuit-breaker check.
+    # Coerce once for the early circuit-breaker check; _managed_execution
+    # will pass through the already-typed object.
     model_config = coerce_model_config(model_config)
     model_name = model_config.name
 
@@ -179,12 +179,12 @@ async def query_model(
             sem = ctx.get_semaphore()
             async with sem:
                 result = await asyncio.wait_for(
-                    provider.query("", guard.model_config, MODEL_TIMEOUT, request=guard.request),
+                    provider.query(guard.model_config, MODEL_TIMEOUT, request=guard.request),
                     timeout=MODEL_TIMEOUT,
                 )
             content, token_usage = result
             guard.token_usage = token_usage
-            return {"content": content}, token_usage
+            return content, token_usage
     except BudgetExceededError:
         logger.warning(f"Budget exceeded, skipping {model_name}")
         return None, {"budget_exceeded": True}
@@ -212,8 +212,8 @@ async def stream_model(
     Returns:
         Tuple of (accumulated text, token usage dict or None).
     """
-    # coerce_model_config is handled by _managed_execution; only need
-    # the name here for the early circuit-breaker check.
+    # Coerce once for the early circuit-breaker check; _managed_execution
+    # will pass through the already-typed object.
     model_config = coerce_model_config(model_config)
     model_name = model_config.name
 
@@ -230,9 +230,9 @@ async def stream_model(
             provider = ctx.get_provider(guard.provider_name)
 
             if isinstance(provider, StreamingProvider):
-                stream_result = provider.astream("", guard.model_config, MODEL_TIMEOUT, request=guard.request)
+                stream_result = provider.astream(guard.model_config, MODEL_TIMEOUT, request=guard.request)
             else:
-                stream_result = fallback_astream(provider, "", guard.model_config, MODEL_TIMEOUT, request=guard.request)
+                stream_result = fallback_astream(provider, guard.model_config, MODEL_TIMEOUT, request=guard.request)
             async for chunk in stream_result:
                 accumulated += chunk
                 if on_chunk is not None:
@@ -255,7 +255,7 @@ async def stream_model(
         # Fall back to query_model (manages its own budget lifecycle)
         result, usage = await query_model(model_config, messages, ctx, system_message)
         if result is not None:
-            return result.get("content", ""), usage
+            return result, usage
         return "", None
 
 
@@ -267,7 +267,7 @@ async def query_models_parallel(
     system_message: str | None = None,
     min_responses: int | None = None,
     soft_timeout: float | None = None,
-) -> tuple[dict[str, dict[str, Any] | None], dict[str, dict[str, Any] | None]]:
+) -> tuple[dict[str, str | None], dict[str, dict[str, Any] | None]]:
     """Query multiple models in parallel via hybrid providers.
 
     Args:
@@ -291,7 +291,7 @@ async def query_models_parallel(
     if soft_timeout is None:
         soft_timeout = float(SOFT_TIMEOUT)
 
-    async def safe_query(config: ModelConfig) -> tuple[str, dict[str, Any] | None, dict[str, Any] | None]:
+    async def safe_query(config: ModelConfig) -> tuple[str, str | None, dict[str, Any] | None]:
         name = config.name
         start = time.time()
         if progress:
@@ -319,7 +319,7 @@ async def query_models_parallel(
     tasks = [asyncio.create_task(safe_query(config)) for config in model_configs]
 
     # Track which tasks are done
-    completed_results: dict[str, dict[str, Any] | None] = {}
+    completed_results: dict[str, str | None] = {}
     token_usages: dict[str, dict[str, Any] | None] = {}
     pending_tasks = set(tasks)
 

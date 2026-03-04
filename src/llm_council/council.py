@@ -14,22 +14,19 @@ import os
 import sys
 import time
 import uuid
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Mapping
 from typing import Any
-
-from pydantic import ValidationError
 
 from .aggregation import calculate_aggregate_rankings
 from .budget import BudgetExceededError, create_budget_guard
 from .context import CouncilContext
 from .cost import CouncilCostTracker
-from .defaults import DEFAULT_CACHE_TTL
 from .formatting import format_output, format_stage1_output, format_stage2_output
 from .manifest import RunManifest
 from .models import CouncilConfig, generate_response_labels
 from .progress import ProgressManager
 from .run_options import RunOptions
-from .security import sanitize_user_input
+from .security import sanitize_model_output, sanitize_user_input
 from .stages import stage1_collect_responses, stage2_collect_rankings, stage3_synthesize_final
 
 logger = logging.getLogger("llm-council")
@@ -38,106 +35,18 @@ logger = logging.getLogger("llm-council")
 def validate_config(config: dict) -> list[str]:
     """Validate a council configuration dictionary.
 
-    Delegates structural validation (model fields, budget constraints,
-    provider-specific requirements) to ``CouncilConfig`` via Pydantic,
-    then performs environment-variable checks that Pydantic cannot handle.
-
-    Args:
-        config: Raw configuration dictionary, typically loaded from a
-            ``council-config.json`` file.
+    Thin wrapper around ``CouncilConfig.validate_from_dict()``.
 
     Returns:
         A list of human-readable validation error strings.  An empty list
         means the configuration is valid.
     """
-    errors: list[str] = []
-
-    # --- Pydantic structural validation ---
-    try:
-        CouncilConfig(**config)
-    except ValidationError as e:
-        for error in e.errors():
-            loc = ".".join(str(x) for x in error["loc"])
-            msg = error["msg"]
-
-            if error["type"] == "missing":
-                if loc == "council_models":
-                    errors.append("Config missing 'council_models' list")
-                else:
-                    errors.append(f"Missing required field: {loc}")
-            elif error["type"] in ["list_min_length", "too_short"] and "council_models" in loc:
-                errors.append("'council_models' must be a non-empty list")
-            elif error["type"] == "literal_error" and "provider" in loc:
-                if "council_models" in loc:
-                    idx = loc.split(".")[1] if "." in loc else "0"
-                    idx_int = int(idx) if idx.isdigit() else 0
-                    model_name = config.get("council_models", [{}])[idx_int].get("name", f"model[{idx}]")
-                else:
-                    model_name = config.get("chairman", {}).get("name", "chairman")
-                errors.append(f"{model_name}: unknown provider (must be one of: bedrock, poe, openrouter)")
-            elif "budget_tokens" in loc and error["type"] in ("greater_than_equal", "less_than_equal"):
-                if "council_models" in loc:
-                    idx = int(loc.split(".")[1]) if "." in loc and loc.split(".")[1].isdigit() else 0
-                    model_name = config.get("council_models", [{}])[idx].get("name", f"model[{idx}]")
-                else:
-                    model_name = config.get("chairman", {}).get("name", "chairman")
-                errors.append(f"{model_name}: 'budget_tokens' must be integer between 1024 and 128000")
-            elif error["type"] == "union_tag_invalid":
-                if "council_models" in loc:
-                    idx = int(loc.split(".")[1]) if "." in loc and loc.split(".")[1].isdigit() else 0
-                    model_name = config.get("council_models", [{}])[idx].get("name", f"model[{idx}]")
-                else:
-                    model_name = config.get("chairman", {}).get("name", "chairman")
-                input_str = str(error.get("input", {}))
-                if "model_id" in input_str:
-                    errors.append(f"{model_name}: Bedrock provider requires 'model_id'")
-                elif "bot_name" in input_str:
-                    errors.append(f"{model_name}: Poe provider requires 'bot_name'")
-                else:
-                    errors.append(f"{loc}: {msg}")
-            else:
-                errors.append(f"{loc}: {msg}")
-
-    # --- Check for missing name fields (union dispatch can mask this) ---
-    all_models = list(config.get("council_models", []))
-    if config.get("chairman"):
-        all_models.append(config["chairman"])
-    for i, model in enumerate(all_models):
-        if "name" not in model:
-            errors.append(f"Model at index {i} missing 'name'")
-
-    # --- Environment variable checks (Pydantic can't do these) ---
-    poe_models = [m for m in config.get("council_models", []) if m.get("provider") == "poe"]
-    chairman_cfg = config.get("chairman") or {}
-    if chairman_cfg.get("provider") == "poe":
-        poe_models.append(config["chairman"])
-    if poe_models and not os.environ.get("POE_API_KEY"):
-        errors.append("POE_API_KEY environment variable required for Poe provider models")
-
-    or_models = [m for m in config.get("council_models", []) if m.get("provider") == "openrouter"]
-    if chairman_cfg.get("provider") == "openrouter":
-        or_models.append(config["chairman"])
-    if or_models and not os.environ.get("OPENROUTER_API_KEY"):
-        errors.append("OPENROUTER_API_KEY environment variable required for OpenRouter provider models")
-
-    # Deduplicate preserving order
-    seen: set[str] = set()
-    return [e for e in errors if not (e in seen or seen.add(e))]
+    return CouncilConfig.validate_from_dict(config)
 
 
 async def run_council(
     question: str,
     config: CouncilConfig | Mapping[str, Any],
-    print_manifest: bool = False,
-    log_dir: str | None = None,
-    context_factory: Any = None,
-    max_stage: int = 3,
-    seed: int | None = None,
-    use_cache: bool = True,
-    cache_ttl: int = DEFAULT_CACHE_TTL,
-    stream: bool = False,
-    on_chunk: Callable[[str], Awaitable[None]] | None = None,
-    *,
     options: RunOptions | None = None,
 ) -> str:
     """Run the LLM Council 3-stage deliberation pipeline.
@@ -156,30 +65,8 @@ async def run_council(
         question: The user question to present to the council.
         config: Council configuration as a ``CouncilConfig`` instance or
             a plain dict/Mapping (validated internally).
-        options: Optional ``RunOptions`` dataclass consolidating the
-            keyword-only parameters below.  When provided, individual
-            keyword arguments are ignored.
-        print_manifest: If ``True``, write the run manifest as JSON to
-            *stderr* after the run completes.
-        log_dir: Directory path for JSONL run logs.  When set, a
-            ``RunLogger`` writes per-stage data to this directory.
-        context_factory: Optional zero-argument callable that returns a
-            ``CouncilContext``.  Primarily used in tests to inject a
-            pre-configured context.
-        max_stage: Highest stage to execute (1, 2, or 3).  Stages beyond
-            this value are skipped and partial output is returned.
-        seed: Random seed passed to the bootstrap confidence-interval
-            calculation in Stage 2 aggregation for reproducibility.
-        use_cache: If ``True``, Stage 1 responses are cached in a local
-            SQLite database so repeated identical queries are served from
-            cache.
-        cache_ttl: Time-to-live in seconds for cached Stage 1 responses.
-            Defaults to 86 400 (24 hours).
-        stream: If ``True``, Stage 3 synthesis uses the streaming
-            provider interface and delivers chunks via *on_chunk*.
-        on_chunk: Async callback invoked with each text chunk during
-            streaming Stage 3 synthesis.  Ignored when *stream* is
-            ``False``.
+        options: ``RunOptions`` dataclass consolidating all run parameters.
+            When ``None``, defaults are used for all options.
 
     Returns:
         A formatted string containing the council output.  The exact
@@ -192,17 +79,18 @@ async def run_council(
             exceeds the limits defined in the ``budget`` section of
             *config*.
     """
-    # Unpack RunOptions when provided, overriding individual keyword args
-    if options is not None:
-        print_manifest = options.print_manifest
-        log_dir = options.log_dir
-        context_factory = options.context_factory
-        max_stage = options.max_stage
-        seed = options.seed
-        use_cache = options.use_cache
-        cache_ttl = options.cache_ttl
-        stream = options.stream
-        on_chunk = options.on_chunk
+    if options is None:
+        options = RunOptions()
+
+    print_manifest = options.print_manifest
+    log_dir = options.log_dir
+    context_factory = options.context_factory
+    max_stage = options.max_stage
+    seed = options.seed
+    use_cache = options.use_cache
+    cache_ttl = options.cache_ttl
+    stream = options.stream
+    on_chunk = options.on_chunk
 
     # Track start time for manifest
     start_time = time.time()
@@ -290,9 +178,14 @@ async def run_council(
                 await ctx.progress.complete_council(total_elapsed)
                 return format_stage1_output(stage1_results)
 
+            # Pre-compute sanitized response tuples for Stage 2 and 3
+            sanitized_responses = [
+                (r.model, sanitize_model_output(r.response)) for r in stage1_results
+            ]
+
             logger.info("Stage 2: Collecting peer rankings...")
             stage2_results, per_ranker_label_mappings, stage2_token_usages = await stage2_collect_rankings(
-                question, stage1_results, council_models, ctx
+                question, stage1_results, council_models, ctx, response_tuples=sanitized_responses
             )
 
             logger.info(f"Stage 2 complete: {len(stage2_results)} rankings collected")
@@ -377,6 +270,7 @@ async def run_council(
                 ctx,
                 stream=stream,
                 on_chunk=on_chunk,
+                response_tuples=sanitized_responses,
             )
 
             # Fallback: if explicit chairman failed, try #1 ranked model
@@ -394,6 +288,7 @@ async def run_council(
                         ctx,
                         stream=stream,
                         on_chunk=on_chunk,
+                        response_tuples=sanitized_responses,
                     )
                     chairman_config_typed = fallback_config
 

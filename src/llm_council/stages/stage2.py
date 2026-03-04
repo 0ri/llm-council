@@ -20,7 +20,7 @@ from ..models import (
 from ..parsing import parse_ranking_from_text
 from ..progress import ModelStatus
 from ..prompts import RANKING_PROMPT_TEMPLATE, RANKING_SYSTEM_MESSAGE_TEMPLATE, resolve_template
-from ..security import build_manipulation_resistance_msg, format_anonymized_responses, sanitize_model_output
+from ..security import build_manipulation_resistance_msg, format_anonymized_responses
 from .execution import query_model
 
 logger = logging.getLogger("llm-council")
@@ -81,7 +81,7 @@ async def _get_ranking(
         model_config, messages, ctx, system_message, suppress_provider_flags=suppress_provider_flags
     )
     if response is not None:
-        full_text = response.get("content", "")
+        full_text = response
         parsed_ranking, is_valid = parse_ranking_from_text(full_text, num_responses=num_responses)
         return Stage2Result(
             model=ranker_name,
@@ -98,6 +98,7 @@ async def stage2_collect_rankings(
     council_models: list[ModelConfig],
     ctx: CouncilContext,
     stage2_max_retries: int | None = None,
+    response_tuples: list[tuple[str, str]] | None = None,
 ) -> tuple[list[Stage2Result], dict[str, dict[str, str]], dict[str, dict[str, Any] | None]]:
     """Stage 2: Each model ranks the anonymized responses.
 
@@ -111,6 +112,8 @@ async def stage2_collect_rankings(
         council_models: List of council model configs
         ctx: CouncilContext providing providers, circuit breakers, semaphore, progress
         stage2_max_retries: Maximum retries for invalid ballots (default: ctx.stage2_max_retries)
+        response_tuples: Pre-sanitized (model_name, sanitized_text) tuples from council.py.
+            If None, built from stage1_results (for backward compatibility).
 
     Returns:
         Tuple of (stage2_results, per_ranker_label_mappings, token_usages)
@@ -134,8 +137,14 @@ async def stage2_collect_rankings(
     ranking_sys_template = resolve_template(prompt_config, "ranking_system", RANKING_SYSTEM_MESSAGE_TEMPLATE)
     system_message = ranking_sys_template.format(manipulation_resistance_msg=base_resistance_msg)
 
-    # Build responses tuples for prompt construction, sanitizing outputs
-    response_tuples = [(result.model, sanitize_model_output(result.response)) for result in stage1_results]
+    # Resolve ranking user template once (hoisted from per-ranker loop)
+    custom_ranking_user = resolve_template(prompt_config, "ranking_user", RANKING_PROMPT_TEMPLATE)
+
+    # Use pre-sanitized response tuples if provided, else build from stage1_results
+    if response_tuples is None:
+        from ..security import sanitize_model_output
+
+        response_tuples = [(result.model, sanitize_model_output(result.response)) for result in stage1_results]
 
     # Store per-ranker label mappings for proper aggregation
     per_ranker_label_mappings: dict[str, dict[str, str]] = {}
@@ -179,7 +188,6 @@ async def stage2_collect_rankings(
         per_ranker_label_mappings[ranker_name] = label_to_model
 
         # Build the ranking prompt with randomized order
-        custom_ranking_user = resolve_template(prompt_config, "ranking_user", RANKING_PROMPT_TEMPLATE)
         ranking_prompt = build_ranking_prompt(
             user_query, filtered_responses, response_order, custom_template=custom_ranking_user
         )

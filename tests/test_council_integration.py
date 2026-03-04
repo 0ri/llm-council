@@ -6,13 +6,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from llm_council.council import run_council
+from llm_council.run_options import RunOptions
 
 
 def _make_stage_router(stage1_responses, stage2_rankings, stage3_response, n_models):
     """Build a mock_query function that routes by call count."""
     call_count = {"n": 0}
 
-    async def mock_query(prompt, model_config, timeout, **kwargs):
+    async def mock_query(model_config, timeout, **kwargs):
         call_count["n"] += 1
         name = getattr(model_config, "name", "unknown")
         if call_count["n"] <= n_models:
@@ -41,7 +42,7 @@ class TestRunCouncilIntegration:
         }
         call_count = {"stage": 1}
 
-        async def mock_query(prompt, model_config, timeout, **kwargs):
+        async def mock_query(model_config, timeout, **kwargs):
             name = getattr(model_config, "name", "unknown")
             if call_count["stage"] <= 3:
                 call_count["stage"] += 1
@@ -61,7 +62,9 @@ class TestRunCouncilIntegration:
             result = await run_council(
                 "What is the meaning of life?",
                 sample_config,
-                context_factory=make_ctx_factory(mock_provider),
+                options=RunOptions(
+                    context_factory=make_ctx_factory(mock_provider),
+                ),
             )
 
         assert "## LLM Council Response" in result
@@ -72,7 +75,7 @@ class TestRunCouncilIntegration:
     async def test_graceful_degradation_on_model_failure(self, sample_config, make_ctx_factory):
         call_count = {"n": 0}
 
-        async def mock_query(prompt, model_config, timeout, **kwargs):
+        async def mock_query(model_config, timeout, **kwargs):
             call_count["n"] += 1
             name = getattr(model_config, "name", "unknown")
             if name == "Model-B":
@@ -88,7 +91,9 @@ class TestRunCouncilIntegration:
             result = await run_council(
                 "Test question",
                 sample_config,
-                context_factory=make_ctx_factory(mock_provider),
+                options=RunOptions(
+                    context_factory=make_ctx_factory(mock_provider),
+                ),
             )
 
         assert "LLM Council Response" in result or "Error" in result
@@ -99,7 +104,7 @@ class TestRunCouncilIntegration:
     async def test_all_stage1_models_fail(self, sample_config, make_ctx_factory):
         """All models return None/raise in Stage 1 → graceful error, no crash."""
 
-        async def mock_query(prompt, model_config, timeout, **kwargs):
+        async def mock_query(model_config, timeout, **kwargs):
             raise Exception("Provider unavailable")
 
         mock_provider = MagicMock()
@@ -109,7 +114,9 @@ class TestRunCouncilIntegration:
             result = await run_council(
                 "Test question",
                 sample_config,
-                context_factory=make_ctx_factory(mock_provider),
+                options=RunOptions(
+                    context_factory=make_ctx_factory(mock_provider),
+                ),
             )
 
         assert "Error" in result
@@ -120,7 +127,7 @@ class TestRunCouncilIntegration:
         """Rankings are unparseable → low ballot warning, Stage 3 still attempted."""
         call_count = {"n": 0}
 
-        async def mock_query(prompt, model_config, timeout, **kwargs):
+        async def mock_query(model_config, timeout, **kwargs):
             call_count["n"] += 1
             name = getattr(model_config, "name", "unknown")
             if call_count["n"] <= 3:
@@ -138,7 +145,9 @@ class TestRunCouncilIntegration:
             result = await run_council(
                 "Test question",
                 sample_config,
-                context_factory=make_ctx_factory(mock_provider),
+                options=RunOptions(
+                    context_factory=make_ctx_factory(mock_provider),
+                ),
             )
 
         # Should still produce output (either warning + synthesis, or error)
@@ -149,7 +158,7 @@ class TestRunCouncilIntegration:
         """1 of 3 models fails in Stage 1 → pipeline continues with 2 responses."""
         call_count = {"n": 0}
 
-        async def mock_query(prompt, model_config, timeout, **kwargs):
+        async def mock_query(model_config, timeout, **kwargs):
             call_count["n"] += 1
             name = getattr(model_config, "name", "unknown")
             if call_count["n"] <= 3:
@@ -168,7 +177,9 @@ class TestRunCouncilIntegration:
             result = await run_council(
                 "Test question",
                 sample_config,
-                context_factory=make_ctx_factory(mock_provider),
+                options=RunOptions(
+                    context_factory=make_ctx_factory(mock_provider),
+                ),
             )
 
         # Pipeline should complete (with or without warnings)
@@ -182,7 +193,7 @@ class TestRunCouncilIntegration:
         cache = ResponseCache(db_path=tmp_path / "test_cache.db", ttl=86400)
         query_count = {"total": 0}
 
-        async def mock_query(prompt, model_config, timeout, **kwargs):
+        async def mock_query(model_config, timeout, **kwargs):
             query_count["total"] += 1
             name = getattr(model_config, "name", "unknown")
             if query_count["total"] <= 3:
@@ -201,8 +212,10 @@ class TestRunCouncilIntegration:
             await run_council(
                 question,
                 sample_config,
-                context_factory=make_ctx_factory(mock_provider, cache=cache),
-                use_cache=True,
+                options=RunOptions(
+                    context_factory=make_ctx_factory(mock_provider, cache=cache),
+                    use_cache=True,
+                ),
             )
 
         first_run_calls = query_count["total"]
@@ -216,8 +229,10 @@ class TestRunCouncilIntegration:
             await run_council(
                 question,
                 sample_config,
-                context_factory=make_ctx_factory(mock_provider2, cache=cache),
-                use_cache=True,
+                options=RunOptions(
+                    context_factory=make_ctx_factory(mock_provider2, cache=cache),
+                    use_cache=True,
+                ),
             )
 
         second_run_calls = query_count["total"]
@@ -240,7 +255,7 @@ class TestRunCouncilIntegration:
         }
         call_count = {"n": 0}
 
-        async def mock_query(prompt, model_config, timeout, **kwargs):
+        async def mock_query(model_config, timeout, **kwargs):
             call_count["n"] += 1
             name = getattr(model_config, "name", "unknown")
             # Return large-ish responses to trigger budget
@@ -256,7 +271,9 @@ class TestRunCouncilIntegration:
             result = await run_council(
                 "Budget test",
                 config,
-                context_factory=make_ctx_factory(mock_provider),
+                options=RunOptions(
+                    context_factory=make_ctx_factory(mock_provider),
+                ),
             )
 
         # Should either complete with budget error or complete gracefully
@@ -273,7 +290,7 @@ class TestRunCouncilIntegration:
         }
         call_count = {"n": 0}
 
-        async def mock_query(prompt, model_config, timeout, **kwargs):
+        async def mock_query(model_config, timeout, **kwargs):
             call_count["n"] += 1
             if call_count["n"] == 1:
                 return "Solo model's response to the question.", None
@@ -289,7 +306,9 @@ class TestRunCouncilIntegration:
             result = await run_council(
                 "Single model test",
                 config,
-                context_factory=make_ctx_factory(mock_provider),
+                options=RunOptions(
+                    context_factory=make_ctx_factory(mock_provider),
+                ),
             )
 
         assert result
@@ -309,7 +328,7 @@ class TestRunCouncilIntegration:
         }
         call_count = {"n": 0}
 
-        async def mock_query(prompt, model_config, timeout, **kwargs):
+        async def mock_query(model_config, timeout, **kwargs):
             call_count["n"] += 1
             name = getattr(model_config, "name", "unknown")
             if call_count["n"] <= 3:
@@ -328,7 +347,9 @@ class TestRunCouncilIntegration:
             result = await run_council(
                 "Auto chairman test",
                 config,
-                context_factory=make_ctx_factory(mock_provider),
+                options=RunOptions(
+                    context_factory=make_ctx_factory(mock_provider),
+                ),
             )
 
         assert "LLM Council Response" in result
@@ -347,7 +368,7 @@ class TestRunCouncilIntegration:
         call_count = {"n": 0}
         chairman_attempts = {"count": 0}
 
-        async def mock_query(prompt, model_config, timeout, **kwargs):
+        async def mock_query(model_config, timeout, **kwargs):
             call_count["n"] += 1
             name = getattr(model_config, "name", "unknown")
             if call_count["n"] <= 3:
@@ -378,7 +399,9 @@ class TestRunCouncilIntegration:
             result = await run_council(
                 "Chairman fallback test",
                 sample_config,
-                context_factory=make_ctx_factory(mock_provider),
+                options=RunOptions(
+                    context_factory=make_ctx_factory(mock_provider),
+                ),
             )
 
         # Should contain the fallback synthesis, not the error

@@ -14,6 +14,7 @@ from hypothesis import given, settings
 
 from llm_council.context import CouncilContext
 from llm_council.progress import ProgressManager
+from llm_council.run_options import RunOptions
 
 # --- Strategies ---
 
@@ -318,48 +319,6 @@ async def test_shutdown_idempotency(data):
 
 
 @pytest.mark.asyncio
-async def test_shutdown_after_close():
-    """Call close() then shutdown() — progress shutdown() should still be called, no exception.
-
-    When close() is called first, providers and cache are already cleaned up.
-    A subsequent shutdown() should still call progress.shutdown() and not raise,
-    even though _shutdown_called was False before shutdown() was invoked.
-
-    Validates: Requirements 4.1, 4.2, 5.2
-    """
-    # Build a provider that succeeds on close()
-    provider = Mock()
-    provider.close = AsyncMock()
-
-    cache = Mock()
-    cache.close = Mock()
-
-    progress = Mock(spec=ProgressManager)
-    progress.shutdown = AsyncMock()
-
-    ctx = CouncilContext()
-    ctx.providers = {"p0": provider}
-    ctx.cache = cache
-    ctx.progress = progress
-
-    # First: call close() directly — closes providers and cache
-    await ctx.close()
-    provider.close.assert_awaited_once()
-    cache.close.assert_called_once()
-
-    # Then: call shutdown() — should still run (flag was not set by close())
-    await ctx.shutdown()
-
-    # progress.shutdown() must have been called
-    progress.shutdown.assert_awaited_once()
-
-    # provider.close() will have been called twice total (once by close(), once
-    # by shutdown() which internally calls close() again), but no exception
-    assert provider.close.await_count == 2
-    assert cache.close.call_count == 2
-
-
-@pytest.mark.asyncio
 async def test_shutdown_delegates_to_close():
     """Mock _close_resources(), call shutdown(), verify it was called.
 
@@ -378,32 +337,6 @@ async def test_shutdown_delegates_to_close():
     # progress.shutdown() should also have been called
     progress.shutdown.assert_awaited_once()
 
-
-@pytest.mark.asyncio
-async def test_close_preserved():
-    """Call close() directly with providers — verify providers are closed and cache is closed.
-
-    This ensures the existing close() behavior is unchanged (Requirement 4.1).
-
-    Validates: Requirements 4.1
-    """
-    provider_a = Mock()
-    provider_a.close = AsyncMock()
-    provider_b = Mock()
-    provider_b.close = AsyncMock()
-
-    cache = Mock()
-    cache.close = Mock()
-
-    ctx = CouncilContext()
-    ctx.providers = {"a": provider_a, "b": provider_b}
-    ctx.cache = cache
-
-    await ctx.close()
-
-    provider_a.close.assert_awaited_once()
-    provider_b.close.assert_awaited_once()
-    cache.close.assert_called_once()
 
 
 # --- Unit Tests for run_council finally block (Task 4.2) ---
@@ -478,7 +411,7 @@ async def test_finally_calls_shutdown_on_success():
         mock_agg.return_value = ({"test-model": 1}, 1, 1)
         mock_s3.return_value = (stage3_result, None)
 
-        await run_council("test question", config, context_factory=lambda: ctx)
+        await run_council("test question", config, options=RunOptions(context_factory=lambda: ctx))
 
     ctx.shutdown.assert_awaited_once()
 
@@ -522,7 +455,7 @@ async def test_finally_calls_shutdown_on_budget_error():
             side_effect=BudgetExceededError("token limit reached"),
         ),
     ):
-        result = await run_council("test question", config, context_factory=lambda: ctx)
+        result = await run_council("test question", config, options=RunOptions(context_factory=lambda: ctx))
 
     assert "Budget limit exceeded" in result
     ctx.shutdown.assert_awaited_once()
@@ -567,6 +500,6 @@ async def test_finally_calls_shutdown_on_unexpected_error():
         ),
     ):
         with pytest.raises(RuntimeError, match="unexpected failure"):
-            await run_council("test question", config, context_factory=lambda: ctx)
+            await run_council("test question", config, options=RunOptions(context_factory=lambda: ctx))
 
     ctx.shutdown.assert_awaited_once()

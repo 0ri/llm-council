@@ -22,7 +22,7 @@ class _MockProvider:
     def __init__(self, response: str):
         self._response = response
 
-    async def query(self, prompt: str, model_config: dict, timeout: int, **kwargs) -> tuple[str, dict | None]:
+    async def query(self, model_config: dict, timeout: int, **kwargs) -> tuple[str, dict | None]:
         return self._response, None
 
 
@@ -43,7 +43,7 @@ def test_fallback_astream_yields_single_chunk_equal_to_query(response: str):
 
     async def _run():
         provider = _MockProvider(response)
-        result = fallback_astream(provider, "test prompt", {}, timeout=30)
+        result = fallback_astream(provider, {}, timeout=30)
 
         assert isinstance(result, StreamResult)
 
@@ -75,10 +75,10 @@ class _MockStreamingProvider:
     def __init__(self, chunks: list[str]):
         self._chunks = chunks
 
-    async def query(self, prompt: str, model_config: dict, timeout: int, **kwargs) -> tuple[str, dict | None]:
+    async def query(self, model_config: dict, timeout: int, **kwargs) -> tuple[str, dict | None]:
         return "".join(self._chunks), None
 
-    def astream(self, prompt: str, model_config: dict, timeout: int, **kwargs) -> StreamResult:
+    def astream(self, model_config: dict, timeout: int, **kwargs) -> StreamResult:
         async def _generate():
             for chunk in self._chunks:
                 yield chunk
@@ -103,7 +103,7 @@ def test_all_yielded_chunks_are_non_empty_strings(chunks: list[str]):
 
     async def _run():
         provider = _MockStreamingProvider(chunks)
-        result = provider.astream("test prompt", {}, timeout=30)
+        result = provider.astream({}, timeout=30)
 
         assert isinstance(result, StreamResult)
 
@@ -150,10 +150,10 @@ class _MockRoundTripProvider:
         self._chunks = chunks
         self._usage = usage
 
-    async def query(self, prompt: str, model_config: dict, timeout: int, **kwargs) -> tuple[str, dict[str, int] | None]:
+    async def query(self, model_config: dict, timeout: int, **kwargs) -> tuple[str, dict[str, int] | None]:
         return "".join(self._chunks), self._usage
 
-    def astream(self, prompt: str, model_config: dict, timeout: int, **kwargs) -> StreamResult:
+    def astream(self, model_config: dict, timeout: int, **kwargs) -> StreamResult:
         usage = self._usage
 
         async def _generate():
@@ -211,7 +211,7 @@ def test_streaming_round_trip_equivalence(
         provider = _MockRoundTripProvider(chunks, usage)
 
         # --- astream path ---
-        stream_result = provider.astream("prompt", {}, timeout=30)
+        stream_result = provider.astream({}, timeout=30)
         assert isinstance(stream_result, StreamResult)
 
         yielded: list[str] = []
@@ -221,7 +221,7 @@ def test_streaming_round_trip_equivalence(
         concatenated = "".join(yielded)
 
         # --- query path ---
-        query_text, query_usage = await provider.query("prompt", {}, timeout=30)
+        query_text, query_usage = await provider.query({}, timeout=30)
 
         # 1. Concatenation of all chunks equals the original string
         assert concatenated == response, f"Concatenated chunks != original: {concatenated!r} != {response!r}"
@@ -255,10 +255,10 @@ class _MockStreamingProviderForCallback:
     def __init__(self, chunks: list[str]):
         self._chunks = chunks
 
-    async def query(self, prompt: str, model_config: dict, timeout: int, **kwargs) -> tuple[str, dict | None]:
+    async def query(self, model_config: dict, timeout: int, **kwargs) -> tuple[str, dict | None]:
         return "".join(self._chunks), None
 
-    def astream(self, prompt: str, model_config: dict, timeout: int, **kwargs) -> StreamResult:
+    def astream(self, model_config: dict, timeout: int, **kwargs) -> StreamResult:
         async def _generate():
             for chunk in self._chunks:
                 yield chunk
@@ -378,10 +378,10 @@ def test_stage1_output_ordering_invariant_to_completion_order(
         # Build the mock return value for query_models_parallel.
         # The dict is constructed in completion order to simulate models
         # finishing in a different order than config order.
-        response_dict: dict[str, dict[str, str] | None] = {}
+        response_dict: dict[str, str | None] = {}
         usage_dict: dict[str, dict | None] = {}
         for name in completion_order:
-            response_dict[name] = {"content": responses[name]}
+            response_dict[name] = responses[name]
             usage_dict[name] = None
 
         mock_qmp = AsyncMock(return_value=(response_dict, usage_dict))
@@ -429,10 +429,10 @@ class _MockDualModeProvider:
         self._response_text = response_text
         self._chunks = chunks
 
-    async def query(self, prompt: str, model_config: dict, timeout: int, **kwargs) -> tuple[str, dict | None]:
+    async def query(self, model_config: dict, timeout: int, **kwargs) -> tuple[str, dict | None]:
         return self._response_text, None
 
-    def astream(self, prompt: str, model_config: dict, timeout: int, **kwargs) -> StreamResult:
+    def astream(self, model_config: dict, timeout: int, **kwargs) -> StreamResult:
         async def _generate():
             for chunk in self._chunks:
                 yield chunk
@@ -559,7 +559,7 @@ class _MockProviderForStage1:
     def __init__(self, responses: dict[str, str]):
         self._responses = responses
 
-    async def query(self, prompt: str, model_config: dict, timeout: int, **kwargs) -> tuple[str, dict | None]:
+    async def query(self, model_config: dict, timeout: int, **kwargs) -> tuple[str, dict | None]:
         name = model_config.get("name", "unknown")
         return self._responses.get(name, "default-response"), None
 

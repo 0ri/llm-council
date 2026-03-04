@@ -196,6 +196,11 @@ class TestParseOrdinalRanking:
         text = "Response B is the first choice. Response A is the second choice."
         assert _parse_ordinal_ranking(text) == ["Response B", "Response A"]
 
+    def test_label_right_of_ordinal_not_adjacent(self):
+        # Labels separated from ordinals by intervening text (requires right += 1 fix)
+        text = "The first place goes to... and the winner is Response A, while second is awarded to Response B"
+        assert _parse_ordinal_ranking(text) == ["Response A", "Response B"]
+
 
 class TestParseCommaSeparatedRanking:
     def test_happy_path(self):

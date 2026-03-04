@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 import random
-import warnings
 from collections import defaultdict
 
 from .models import AggregateRanking, Stage2Result
@@ -64,41 +63,6 @@ def bootstrap_confidence_intervals(
         round(bootstrap_means[lower_idx], 2),
         round(bootstrap_means[upper_idx], 2),
     )
-
-
-def calculate_borda_score(positions: list[int], n_candidates: int) -> float:
-    """Calculate Borda count score.
-
-    .. deprecated::
-        This function is unused in the pipeline (replaced by inline
-        normalized Borda in ``calculate_aggregate_rankings``). It will
-        be removed in a future release.
-
-    For N candidates, first place gets N-1 points, second gets N-2, etc.
-
-    Args:
-        positions: List of ranking positions (1-based)
-        n_candidates: Total number of candidates
-
-    Returns:
-        Average Borda score
-    """
-    warnings.warn(
-        "calculate_borda_score() is deprecated and will be removed in a future release",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    if not positions:
-        return 0.0
-
-    borda_points = []
-    for position in positions:
-        # Convert position to Borda points
-        # Position 1 gets n_candidates-1 points, position 2 gets n_candidates-2, etc.
-        points = max(0, n_candidates - position)
-        borda_points.append(points)
-
-    return round(sum(borda_points) / len(borda_points), 2)
 
 
 def calculate_aggregate_rankings(

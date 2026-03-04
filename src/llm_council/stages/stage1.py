@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import sqlite3
 from typing import Any
 
 from ..context import CouncilContext
@@ -39,7 +38,7 @@ async def stage1_collect_responses(
     messages = [{"role": "user", "content": user_query}]
 
     # Check cache for each model
-    cached_responses: dict[str, dict[str, Any] | None] = {}
+    cached_responses: dict[str, str | None] = {}
     cached_usages: dict[str, dict[str, Any] | None] = {}
     models_to_query: list[ModelConfig] = []
 
@@ -49,12 +48,12 @@ async def stage1_collect_responses(
         if ctx.cache is not None:
             try:
                 hit = await ctx.cache.aget(user_query, model_name, model_id, model_config)
-            except (sqlite3.OperationalError, Exception):
+            except Exception:
                 logger.exception(f"Cache read failed for {model_name}, querying model instead")
                 hit = None
             if hit is not None:
                 response_text, token_usage = hit
-                cached_responses[model_name] = {"content": response_text}
+                cached_responses[model_name] = response_text
                 cached_usages[model_name] = token_usage
                 logger.info(f"Cache hit for {model_name}")
                 if progress:
@@ -86,11 +85,11 @@ async def stage1_collect_responses(
                         user_query,
                         model_name,
                         model_id,
-                        response.get("content", ""),
+                        response,
                         token_usages.get(model_name),
                         model_config,
                     )
-                except (sqlite3.OperationalError, Exception):
+                except Exception:
                     logger.exception(f"Cache write failed for {model_name}, continuing without cache")
 
     # Merge cached + fresh responses
@@ -101,9 +100,8 @@ async def stage1_collect_responses(
     stage1_results: list[Stage1Result] = []
     for model_config in council_models:
         model_name = model_config.name
-        response = all_responses.get(model_name)
-        if response is not None:
-            content = response.get("content", "")
+        content = all_responses.get(model_name)
+        if content is not None:
             if not content or not content.strip():
                 logger.warning(f"Filtering out empty response from {model_name}")
                 continue

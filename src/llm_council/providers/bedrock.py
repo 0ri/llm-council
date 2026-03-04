@@ -14,7 +14,6 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
-from botocore.exceptions import ClientError
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 if TYPE_CHECKING:
@@ -26,6 +25,8 @@ logger = logging.getLogger("llm-council")
 
 def is_retryable_bedrock_error(exc: BaseException) -> bool:
     """Determine if a Bedrock error is retryable."""
+    from botocore.exceptions import ClientError
+
     if isinstance(exc, asyncio.TimeoutError):
         return True
     if isinstance(exc, ClientError):
@@ -103,7 +104,6 @@ class BedrockProvider:
 
     async def query(
         self,
-        prompt: str,
         model_config: ModelConfig,
         timeout: int,
         request: ProviderRequest | None = None,
@@ -119,12 +119,12 @@ class BedrockProvider:
         model_id = model_config.model_id
         budget_tokens = getattr(model_config, "budget_tokens", None)
 
-        # Use typed request if provided, fall back to minimal defaults
+        # Use typed request if provided
         if request is not None:
             messages = request.messages
             system_message = request.system_message
         else:
-            messages = [{"role": "user", "content": prompt}]
+            messages = []
             system_message = None
 
         request_body = self._build_request_body(messages, system_message, budget_tokens)

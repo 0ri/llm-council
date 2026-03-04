@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import warnings
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -202,69 +201,6 @@ class BudgetGuard:
                 f"Budget overrun after commit: ${self.total_cost_usd:.2f} > "
                 f"${self.max_cost_usd:.2f} limit (model: {model_name})"
             )
-
-    def can_afford(
-        self,
-        estimated_input_tokens: int,
-        estimated_output_tokens: int,
-        model_name: str,
-    ) -> None:
-        """Perform a read-only preflight budget check.
-
-        .. deprecated::
-            Use :meth:`reserve` for concurrent use.  ``can_afford`` will
-            be removed in a future release.
-        """
-        warnings.warn(
-            "BudgetGuard.can_afford() is deprecated, use reserve()/release() instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        self.reserve(estimated_input_tokens, estimated_output_tokens, model_name)
-        self.release(estimated_input_tokens, estimated_output_tokens, model_name)
-
-    def check_and_update(
-        self,
-        estimated_input_tokens: int,
-        estimated_output_tokens: int,
-        model_name: str,
-    ) -> None:
-        """Reserve and immediately commit with the same estimates.
-
-        .. deprecated::
-            Use :meth:`reserve` / :meth:`commit` instead.
-            ``check_and_update`` will be removed in a future release.
-        """
-        warnings.warn(
-            "BudgetGuard.check_and_update() is deprecated, use reserve()/commit() instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        self.reserve(estimated_input_tokens, estimated_output_tokens, model_name)
-        self.commit(
-            estimated_input_tokens,
-            estimated_output_tokens,
-            model_name,
-            reserved_input=estimated_input_tokens,
-            reserved_output=estimated_output_tokens,
-        )
-
-    def reset(self) -> None:
-        """Reset all tracking counters to zero and clear the query log.
-
-        .. deprecated::
-            Create a new ``BudgetGuard`` instead.  ``reset`` will be
-            removed in a future release.
-        """
-        warnings.warn(
-            "BudgetGuard.reset() is deprecated, create a new BudgetGuard instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        self.total_input_tokens = 0
-        self.total_output_tokens = 0
-        self.total_cost_usd = 0.0
-        self.queries.clear()
 
     def summary(self) -> str:
         """Return a human-readable budget summary.

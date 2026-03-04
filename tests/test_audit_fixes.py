@@ -338,7 +338,7 @@ class TestOpenRouterStreamingRetry:
 
         with patch.object(provider, "_get_client", return_value=mock_client):
             config = OpenRouterModelConfig(name="test", provider="openrouter", model_id="test")
-            stream = provider.astream("", config, timeout=30)
+            stream = provider.astream(config, timeout=30)
             with pytest.raises(OpenRouterAPIError) as exc_info:
                 async for _ in stream:
                     pass

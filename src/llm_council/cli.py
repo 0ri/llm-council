@@ -288,8 +288,13 @@ def main():
         if not DEFAULT_CACHE_DB.exists():
             print("No cache database found", file=sys.stderr)
             sys.exit(0)
-        config = load_config(args.config)
-        resolved_ttl = _resolve_ttl(args, config)
+        if args.cache_ttl is not None:
+            resolved_ttl = args.cache_ttl
+        elif args.config:
+            config = load_config(args.config)
+            resolved_ttl = config.get("cache_ttl", ResponseCache.DEFAULT_TTL)
+        else:
+            resolved_ttl = ResponseCache.DEFAULT_TTL
         cache = ResponseCache(ttl=resolved_ttl)
         s = cache.stats
         size = _format_file_size(DEFAULT_CACHE_DB.stat().st_size)
@@ -355,20 +360,19 @@ def main():
         on_chunk = _stream_to_stdout
 
     # Run council
-    result = asyncio.run(
-        run_council(
-            question,
-            config,
-            print_manifest=args.manifest,
-            log_dir=args.log_dir,
-            max_stage=args.stage,
-            seed=args.seed,
-            use_cache=not args.no_cache,
-            cache_ttl=resolved_ttl,
-            stream=args.stream,
-            on_chunk=on_chunk,
-        )
+    from .run_options import RunOptions
+
+    opts = RunOptions(
+        print_manifest=args.manifest,
+        log_dir=args.log_dir,
+        max_stage=args.stage,
+        seed=args.seed,
+        use_cache=not args.no_cache,
+        cache_ttl=resolved_ttl,
+        stream=args.stream,
+        on_chunk=on_chunk,
     )
+    result = asyncio.run(run_council(question, config, options=opts))
 
     # Output result
     if args.stream:

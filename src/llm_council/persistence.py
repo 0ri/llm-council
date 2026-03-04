@@ -58,14 +58,12 @@ class RunLogger:
     def log_stage1(self, results: list, token_usages: dict) -> None:
         """Write Stage 1 response records with per-model token usage."""
         for result in results:
-            model = result.model if hasattr(result, "model") else result.get("model")
-            response = result.response if hasattr(result, "response") else result.get("response")
             self._append_record(
                 {
                     "type": "stage1_response",
-                    "model": model,
-                    "response": response,
-                    "token_usage": token_usages.get(model),
+                    "model": result.model,
+                    "response": result.response,
+                    "token_usage": token_usages.get(result.model),
                 }
             )
         self.flush()
@@ -73,33 +71,26 @@ class RunLogger:
     def log_stage2(self, results: list, label_mappings: dict, token_usages: dict) -> None:
         """Write Stage 2 ranking records with label mappings and validity flags."""
         for result in results:
-            model = result.model if hasattr(result, "model") else result.get("model")
             self._append_record(
                 {
                     "type": "stage2_ranking",
-                    "model": model,
-                    "ranking_text": result.ranking if hasattr(result, "ranking") else result.get("ranking"),
-                    "parsed_ranking": (
-                        result.parsed_ranking if hasattr(result, "parsed_ranking") else result.get("parsed_ranking")
-                    ),
-                    "is_valid_ballot": (
-                        result.is_valid_ballot if hasattr(result, "is_valid_ballot") else result.get("is_valid_ballot")
-                    ),
-                    "label_mapping": label_mappings.get(model, {}),
-                    "token_usage": token_usages.get(model),
+                    "model": result.model,
+                    "ranking_text": result.ranking,
+                    "parsed_ranking": result.parsed_ranking,
+                    "is_valid_ballot": result.is_valid_ballot,
+                    "label_mapping": label_mappings.get(result.model, {}),
+                    "token_usage": token_usages.get(result.model),
                 }
             )
         self.flush()
 
     def log_stage3(self, result: Any, token_usage: dict | None) -> None:
         """Write the Stage 3 chairman synthesis record."""
-        model = result.model if hasattr(result, "model") else result.get("model")
-        response = result.response if hasattr(result, "response") else result.get("response")
         self._append_record(
             {
                 "type": "stage3_synthesis",
-                "model": model,
-                "response": response,
+                "model": result.model,
+                "response": result.response,
                 "token_usage": token_usage,
             }
         )
@@ -112,12 +103,10 @@ class RunLogger:
                 "type": "aggregation",
                 "rankings": [
                     {
-                        "model": r.model if hasattr(r, "model") else r.get("model"),
-                        "average_rank": r.average_rank if hasattr(r, "average_rank") else r.get("average_rank"),
-                        "borda_score": getattr(r, "borda_score", None),
-                        "rankings_count": (
-                            r.rankings_count if hasattr(r, "rankings_count") else r.get("rankings_count")
-                        ),
+                        "model": r.model,
+                        "average_rank": r.average_rank,
+                        "borda_score": r.borda_score,
+                        "rankings_count": r.rankings_count,
                     }
                     for r in rankings
                 ],

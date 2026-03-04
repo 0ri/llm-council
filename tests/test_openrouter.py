@@ -38,7 +38,7 @@ class TestOpenRouterProvider:
             mock_client_fn.return_value = mock_client
 
             config = OpenRouterModelConfig(name="GPT-4o", provider="openrouter", model_id="openai/gpt-4o")
-            result, usage = await provider.query("Test prompt", config, timeout=30)
+            result, usage = await provider.query(config, timeout=30)
 
         assert result == "Hello from OpenRouter"
         assert usage == {"input_tokens": 15, "output_tokens": 8}
@@ -61,7 +61,7 @@ class TestOpenRouterProvider:
             mock_client_fn.return_value = mock_client
 
             config = OpenRouterModelConfig(name="test", provider="openrouter", model_id="test")
-            _, usage = await provider.query("Test", config, timeout=30)
+            _, usage = await provider.query(config, timeout=30)
 
         assert usage is not None
         assert usage["input_tokens"] == 100
@@ -84,7 +84,7 @@ class TestOpenRouterProvider:
             mock_client_fn.return_value = mock_client
 
             config = OpenRouterModelConfig(name="test", provider="openrouter", model_id="test")
-            result, usage = await provider.query("Test", config, timeout=30)
+            result, usage = await provider.query(config, timeout=30)
 
         assert result == "Response"
         assert usage is None
@@ -110,7 +110,7 @@ class TestOpenRouterProvider:
                 messages=[{"role": "user", "content": "Hello"}],
                 system_message="You are a helpful assistant",
             )
-            await provider.query("", config, timeout=30, request=request)
+            await provider.query(config, timeout=30, request=request)
 
             call_args = mock_client.post.call_args
             body = call_args[1]["json"]
@@ -137,7 +137,7 @@ class TestOpenRouterProvider:
             config = OpenRouterModelConfig(
                 name="test", provider="openrouter", model_id="test", temperature=0.7, max_tokens=4096
             )
-            await provider.query("Test", config, timeout=30)
+            await provider.query(config, timeout=30)
 
             call_args = mock_client.post.call_args
             body = call_args[1]["json"]
@@ -160,7 +160,7 @@ class TestOpenRouterProvider:
 
             config = OpenRouterModelConfig(name="test", provider="openrouter", model_id="test")
             with pytest.raises(OpenRouterAPIError) as exc_info:
-                await provider.query("Test", config, timeout=30)
+                await provider.query(config, timeout=30)
 
             assert exc_info.value.status_code == 401
 
@@ -234,7 +234,7 @@ class TestOpenRouterProvider:
             mock_client_fn.return_value = mock_client
 
             config = OpenRouterModelConfig(name="test", provider="openrouter", model_id="test")
-            result, _ = await provider.query("Test", config, timeout=30)
+            result, _ = await provider.query(config, timeout=30)
 
         assert result == ""
 
