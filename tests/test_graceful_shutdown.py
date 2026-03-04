@@ -338,7 +338,6 @@ async def test_shutdown_delegates_to_close():
     progress.shutdown.assert_awaited_once()
 
 
-
 # --- Unit Tests for run_council finally block (Task 4.2) ---
 
 

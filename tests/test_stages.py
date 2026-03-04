@@ -95,13 +95,16 @@ class TestStage2CollectRankings:
         with patch("llm_council.stages.stage2.query_model") as mock_query:
             # Setup mock to return valid rankings
             async def mock_query_response(*args, **kwargs):
-                return """
+                return (
+                    """
                     Response A is good.
                     Response B is better.
                     ```json
                     {"ranking": ["Response B", "Response A"]}
                     ```
-                    """, None  # Return tuple (response, token_usage)
+                    """,
+                    None,
+                )  # Return tuple (response, token_usage)
 
             mock_query.side_effect = mock_query_response
 
@@ -157,11 +160,14 @@ class TestStage2CollectRankings:
                 model_name = model_config.name
                 prompt = messages[0]["content"]
                 prompts_by_model[model_name] = prompt
-                return """
+                return (
+                    """
                     ```json
                     {"ranking": ["Response A", "Response B", "Response C"]}
                     ```
-                    """, None  # Return tuple (response, token_usage)
+                    """,
+                    None,
+                )  # Return tuple (response, token_usage)
 
             mock_query.side_effect = mock_query_response
 
@@ -202,11 +208,14 @@ class TestStage2CollectRankings:
 
             async def mock_query_response(*args, **kwargs):
                 # Each model only ranks one other (due to self-exclusion)
-                return """
+                return (
+                    """
                     ```json
                     {"ranking": ["Response A"]}
                     ```
-                    """, None  # Return tuple (response, token_usage)
+                    """,
+                    None,
+                )  # Return tuple (response, token_usage)
 
             mock_query.side_effect = mock_query_response
 

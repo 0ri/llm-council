@@ -44,12 +44,13 @@ See [Package Structure](README.md#package-structure) in the README for the full 
 
 ```
 src/llm_council/
-├── cli.py                  # CLI entry point, argparse flags, config loading
-├── council.py              # Main orchestrator: validate_config, run_council
+├── cli.py                  # CLI entry point (thin dispatcher → _cmd_* functions)
+├── council.py              # Orchestrator: _RunState, stage helpers, run_council
 ├── run_options.py           # RunOptions dataclass for run_council parameters
 ├── models.py               # Pydantic config models and result types
 ├── defaults.py             # Shared default constants (cache TTL, timeouts, retries)
 ├── context.py              # Per-run DI container (lazy provider imports)
+├── _token_estimation.py    # Shared tiktoken/heuristic token estimator
 ├── stages/                 # 3-stage pipeline package
 │   ├── __init__.py         # Re-exports for backward compatibility
 │   ├── execution.py        # query_model, stream_model, parallel dispatch

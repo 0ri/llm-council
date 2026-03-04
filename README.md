@@ -344,13 +344,14 @@ The ranking stage uses three layers of anonymization to ensure fair evaluation:
 ```
 src/llm_council/
 ├── __init__.py              # Package exports: run_council, CouncilConfig, CouncilContext
+├── _token_estimation.py     # Shared tiktoken/heuristic token estimator (used by cost + flattener)
 ├── aggregation.py           # Borda count, bootstrap confidence intervals, ranking aggregation
 ├── budget.py                # Token and cost budget guards with reserve/commit/release
 ├── cache.py                 # SQLite response cache for Stage 1 (TTL, stats, clearing)
-├── cli.py                   # CLI entry point, argparse flags, config loading
+├── cli.py                   # CLI dispatcher: _cmd_run, _cmd_list_models, _cmd_cache_*
 ├── context.py               # Per-run dependency-injection container (lazy provider imports)
-├── cost.py                  # Token counting (tiktoken) and per-stage cost estimation
-├── council.py               # Main orchestrator: validate_config, run_council
+├── cost.py                  # Per-stage cost estimation and CouncilCostTracker
+├── council.py               # Orchestrator: _RunState, stage helpers, run_council
 ├── defaults.py              # Shared default constants (cache TTL, timeouts, retry counts)
 ├── flattener.py             # Codebase flattener: directory → single markdown document
 ├── formatting.py            # Markdown output formatting for all stage combinations
@@ -369,7 +370,7 @@ src/llm_council/
 │   ├── stage2.py            # Stage 2: anonymized peer ranking with retry
 │   └── stage3.py            # Stage 3: chairman synthesis (query or streaming)
 └── providers/
-    ├── __init__.py           # Provider/StreamingProvider protocols, timeout constants
+    ├── __init__.py           # Provider/StreamingProvider protocols, StreamResult, timeout constants
     ├── bedrock.py            # AWS Bedrock provider (Converse API, extended thinking, streaming)
     ├── openrouter.py         # OpenRouter provider (OpenAI-compatible API, SSE streaming)
     └── poe.py                # Poe provider (fastapi_poe, web search, reasoning effort)

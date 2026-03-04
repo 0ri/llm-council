@@ -193,8 +193,7 @@ async def _execute_stage2(
             f"valid ballots (minimum: {ballot_threshold})\n"
         )
         logger.warning(
-            f"Low ballot confidence: {valid_ballots}/{total_ballots} valid ballots "
-            f"(minimum: {ballot_threshold})"
+            f"Low ballot confidence: {valid_ballots}/{total_ballots} valid ballots (minimum: {ballot_threshold})"
         )
 
     return aggregate_rankings, valid_ballots, total_ballots, low_ballot_warning
@@ -435,8 +434,13 @@ async def run_council(
             await state.ctx.progress.complete_council(total_elapsed)
 
             return _assemble_output(
-                state, question, stage3_result, aggregate_rankings,
-                valid_ballots, total_ballots, low_ballot_warning,
+                state,
+                question,
+                stage3_result,
+                aggregate_rankings,
+                valid_ballots,
+                total_ballots,
+                low_ballot_warning,
                 stage1_count=len(stage1_results),
             )
         except BudgetExceededError as e:
